@@ -1,0 +1,9 @@
+{
+  "task_id": "swe-mini-001",
+  "task": "修复 hello.py 中的语法错误：文件内容为 print('hello world'，缺少右括号",
+  "type": "code",
+  "files": {
+    "hello.py": "print('hello world'\n"
+  },
+  "expected": "print('hello world')\n"
+}

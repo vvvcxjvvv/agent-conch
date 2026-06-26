@@ -1,0 +1,42 @@
+name: coding-agent-v1
+description: 基础 coding agent，验证 L1 闭环（AGENTS.md + builtin shell + 单 loop + console 轨迹）
+domains:
+  information:
+    impl: agents_md
+    params:
+      file: ./AGENTS.md
+  tool:
+    impl: builtin_shell
+    params:
+      sandbox: local
+      cwd: .
+      timeout: 30
+  context:
+    impl: jit_compaction
+    params:
+      threshold: 0.4
+  memory:
+    impl: notes_file
+    params:
+      path: ./NOTES.md
+  orchestration:
+    impl: single_loop
+    params: {}
+  eval:
+    impl: step_eval
+    params: {}
+  observability:
+    impl: console_tracer
+    params: {}
+  constraint:
+    impl: linter
+    params: {}
+  governance:
+    impl: allowlist_perms
+    params:
+      tools: [read_file, write_file, run_bash, list_files]
+      audit_log: ./audit.log
+max_steps: 50
+max_tokens: 100000
+model: gpt-4o
+model_fallback: gpt-4o-mini

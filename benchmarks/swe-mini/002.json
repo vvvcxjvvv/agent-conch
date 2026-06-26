@@ -1,0 +1,9 @@
+{
+  "task_id": "swe-mini-002",
+  "task": "为 utils.py 中的 add 函数添加单元测试",
+  "type": "code",
+  "files": {
+    "utils.py": "def add(a, b):\n    return a + b\n"
+  },
+  "expected_contains": "def test_add"
+}
