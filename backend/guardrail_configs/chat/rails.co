@@ -1,0 +1,14 @@
+define user ask delete all files
+  "删除所有文件"
+  "删除全部文件"
+  "rm -rf /"
+  "格式化磁盘"
+  "drop table"
+  "drop database"
+
+define bot refuse dangerous
+  "抱歉，我不能执行可能造成数据破坏的操作。"
+
+define flow self check input
+  user ask delete all files
+  bot refuse dangerous

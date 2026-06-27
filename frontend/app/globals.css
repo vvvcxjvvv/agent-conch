@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+/* 三栏布局 */
+.three-col-grid {
+  display: grid;
+  grid-template-columns: 260px 1fr 280px;
+  height: 100vh;
+  gap: 0;
+}
+
+@media (max-width: 1024px) {
+  .three-col-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }

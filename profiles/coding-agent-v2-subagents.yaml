@@ -1,8 +1,0 @@
-name: coding-agent-v2-subagents
-extends: coding-agent-v1
-description: v1 + 多 Agent 协作（主从模式）
-domains:
-  orchestration:
-    impl: orchestrator_worker
-    params:
-      max_workers: 3

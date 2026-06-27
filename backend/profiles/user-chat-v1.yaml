@@ -1,0 +1,39 @@
+# AgentConch v2 MVP Profile — 终端用户对话
+# 成熟框架最小组合：LangGraph + MCP + litellm + NeMo + console_tracer
+name: user-chat-v1
+description: "终端用户对话 Profile — LangGraph ReAct + MCP filesystem + litellm + NeMo 护栏"
+model: "openai/gpt-4o-mini"
+model_fallback: "openai/gpt-4o-mini"
+max_steps: 25
+max_tokens: 100000
+domains:
+  information:
+    impl: agents_md
+    params:
+      file: "../../AGENTS.md"
+  orchestration:
+    impl: langgraph_react
+    params:
+      model: "openai/gpt-4o-mini"
+      recursion_limit: 25
+  tool:
+    impl: mcp_provider
+    params:
+      servers:
+        - command: "npx"
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  memory:
+    impl: notes_file
+    params: {}
+  guardrail:
+    impl: nemo_guardrails
+    params:
+      config_dir: "../guardrail_configs/chat"
+      use_nemo: false
+  observability:
+    impl: console_tracer
+    params: {}
+  context:
+    impl: jit_compaction
+    params:
+      threshold: 0.4
