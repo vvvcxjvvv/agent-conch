@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, AsyncIterator
 
 from conch.core.extension import Plugin
@@ -25,10 +26,13 @@ logger = logging.getLogger(__name__)
 class LangGraphReActOrchestrator(Plugin):
     """LangGraph ReAct 编排 — 包装 create_react_agent。
 
+    API key 与端点优先级：构造参数 > 环境变量(OPENAI_API_KEY/OPENAI_API_BASE) > None。
+
     Args:
         model: litellm 模型名（如 "openai/gpt-4o"、"ollama/llama3"）
         recursion_limit: 最大递归步数（兜底，实际由 CostGuard/Profile 控制）
-        api_base: 自定义 API 端点（本地模型用）
+        api_base: 自定义 API 端点（默认读 OPENAI_API_BASE）
+        api_key: API key（默认读 OPENAI_API_KEY）
     """
 
     domain = "orchestration"
@@ -50,8 +54,9 @@ class LangGraphReActOrchestrator(Plugin):
     ):
         self.model_name = model
         self.recursion_limit = recursion_limit
-        self.api_base = api_base
-        self.api_key = api_key
+        # 构造参数 > 环境变量 > None
+        self.api_base = api_base or os.environ.get("OPENAI_API_BASE")
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.temperature = temperature
         self._graph = None
 

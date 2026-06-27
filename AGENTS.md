@@ -25,7 +25,7 @@ Agent Harness Engineering 技术实践平台。v2 定位：可运行的 harness 
 
 ## 技术选型（v2）
 
-- 后端：Python 3.11+ / FastAPI / LangGraph / MCP / litellm / NeMo Guardrails / Langfuse / Pydantic v2
+- 后端：Python 3.10+ / FastAPI / LangGraph / MCP / litellm / NeMo Guardrails / Langfuse / Pydantic v2
 - 前端：Next.js 14 / TypeScript / Tailwind / zustand
 - 存储：PostgreSQL + Chroma + Redis（阶段二）；MVP 内存
 - 沙箱：Docker

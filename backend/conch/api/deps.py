@@ -8,9 +8,18 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# 启动时加载 .env 文件
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parents[2] / ".env"
+    load_dotenv(_env_path)
+except ImportError:
+    pass
 
 from conch.core.cost_guard import CostGuard, State, TaskStatus
 from conch.core.guardrail_pipeline import GuardrailPipeline

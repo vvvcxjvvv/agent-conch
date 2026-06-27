@@ -7,6 +7,7 @@ litellm 用 "model:provider" 格式路由，如 "openai/gpt-4o"、"ollama/llama3
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, AsyncIterator
 
 from conch.core.extension import Plugin
@@ -22,10 +23,12 @@ class LiteLLMProvider(Plugin):
     用 litellm.acompletion 统一调用 OpenAI/Claude/Ollama/通义/智谱等。
     支持流式输出与 tool_calls 解析。
 
+    API key 与端点优先级：构造参数 > 环境变量(OPENAI_API_KEY/OPENAI_API_BASE) > 默认。
+
     Args:
         default_model: 默认模型（如 "openai/gpt-4o"、"ollama/llama3"）
-        api_base: 自定义 API 端点（本地模型用）
-        api_key: API key（环境变量 LITELLM_API_KEY 也可）
+        api_base: 自定义 API 端点（本地/国内模型用，默认读 OPENAI_API_BASE）
+        api_key: API key（默认读 OPENAI_API_KEY）
         temperature: 采样温度
     """
 
@@ -45,8 +48,9 @@ class LiteLLMProvider(Plugin):
         temperature: float = 0.7,
     ):
         self.default_model = default_model
-        self.api_base = api_base
-        self.api_key = api_key
+        # 构造参数 > 环境变量 > None
+        self.api_base = api_base or os.environ.get("OPENAI_API_BASE")
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.temperature = temperature
 
     async def stream(

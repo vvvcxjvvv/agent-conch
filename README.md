@@ -206,7 +206,7 @@ agent-conch/
 ## 技术选型
 
 ### 后端
-FastAPI / LangGraph / MCP SDK / litellm / NeMo Guardrails / LlamaGuard / Langfuse / DeepEval / Pydantic v2 / OpenTelemetry
+Python 3.10+ / FastAPI / LangGraph / MCP SDK / litellm / NeMo Guardrails / LlamaGuard / Langfuse / DeepEval / Pydantic v2 / OpenTelemetry
 
 ### 前端
 Next.js 14 (App Router) / TypeScript / Tailwind CSS / shadcn/ui / zustand / TanStack Query
