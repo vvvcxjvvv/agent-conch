@@ -85,6 +85,8 @@ def test_guardrail_pipeline_blocks():
 
 def test_hook_bridge_exists():
     """LangGraphHookBridge 类存在且有回调方法。"""
+    from langchain_core.callbacks.base import BaseCallbackHandler
+
     from conch.core.hook_bridge import LangGraphHookBridge
     from conch.core.cost_guard import State
     from conch.core.hooks import HookBus
@@ -92,12 +94,61 @@ def test_hook_bridge_exists():
     state = State(task="test", hook_bus=HookBus())
     bridge = LangGraphHookBridge(state.hook_bus, state)
 
+    assert isinstance(bridge, BaseCallbackHandler)
+    assert bridge.run_inline is True
+    assert bridge.raise_error is True
+
     # 验证回调方法存在
     assert hasattr(bridge, "on_llm_start")
+    assert hasattr(bridge, "on_chat_model_start")
     assert hasattr(bridge, "on_llm_end")
     assert hasattr(bridge, "on_tool_start")
     assert hasattr(bridge, "on_tool_end")
     assert hasattr(bridge, "on_tool_error")
+
+
+def test_profile_loader_resolves_profile_relative_paths(tmp_path):
+    """Profile 中的路径参数应相对 profile 文件解析。"""
+    from conch.core.profile import ProfileLoader
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    profile_file = profiles_dir / "test.yaml"
+    profile_file.write_text(
+        """
+name: test
+domains:
+  information:
+    impl: agents_md
+    params:
+      file: "../../AGENTS.md"
+  guardrail:
+    impl: nemo_guardrails
+    params:
+      config_dir: "../guardrail_configs/chat"
+  tool:
+    impl: mcp_provider
+    params:
+      servers:
+        - command: "npx"
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    profile = ProfileLoader(profiles_dir).load("test")
+
+    assert profile.domains["information"].params["file"] == str(
+        (profiles_dir / "../../AGENTS.md").resolve()
+    )
+    assert profile.domains["guardrail"].params["config_dir"] == str(
+        (profiles_dir / "../guardrail_configs/chat").resolve()
+    )
+    assert profile.domains["tool"].params["servers"][0]["args"] == [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        ".",
+    ]
 
 
 def test_registry_registers_adapters():

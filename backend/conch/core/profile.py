@@ -31,6 +31,9 @@ except ImportError:
     _HAS_PYDANTIC = False
 
 
+_PATH_PARAM_KEYS = {"file", "config_dir", "path", "dir"}
+
+
 # ── 数据模型（纯 Python dataclass，无依赖可用）──────────────────
 
 @dataclass
@@ -284,7 +287,8 @@ class ProfileLoader:
         if name in self._cache:
             return self._cache[name]
 
-        raw = self._load_yaml(name)
+        raw, profile_path = self._load_yaml(name)
+        raw = self._resolve_profile_paths(raw, profile_path.parent)
         profile = _build_profile(raw)
 
         if profile.extends:
@@ -295,14 +299,60 @@ class ProfileLoader:
         self._cache[name] = profile
         return profile
 
-    def _load_yaml(self, name: str) -> dict:
+    def _load_yaml(self, name: str) -> tuple[dict, Path]:
         path = Path(name)
         if not path.suffix:
             path = self.profiles_dir / f"{name}.yaml"
+        path = path.resolve()
         if not path.exists():
             raise FileNotFoundError(f"Profile not found: {path}")
         with open(path, encoding="utf-8") as f:
-            return _parse_yaml(f.read())
+            return _parse_yaml(f.read()), path
+
+    def _resolve_profile_paths(self, raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
+        """将 profile 中声明的相对路径参数归一化为基于 profile 文件的绝对路径。"""
+        domains = raw.get("domains")
+        if not isinstance(domains, dict):
+            return raw
+
+        normalized = dict(raw)
+        normalized_domains: dict[str, Any] = {}
+        for domain_name, domain_cfg in domains.items():
+            if not isinstance(domain_cfg, dict):
+                normalized_domains[domain_name] = domain_cfg
+                continue
+
+            cfg = dict(domain_cfg)
+            params = cfg.get("params")
+            if isinstance(params, dict):
+                cfg["params"] = self._normalize_param_value(params, base_dir)
+            normalized_domains[domain_name] = cfg
+
+        normalized["domains"] = normalized_domains
+        return normalized
+
+    def _normalize_param_value(
+        self, value: Any, base_dir: Path, param_key: str | None = None
+    ) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: self._normalize_param_value(item, base_dir, key)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._normalize_param_value(item, base_dir, param_key) for item in value]
+        if isinstance(value, str) and param_key in _PATH_PARAM_KEYS:
+            return self._resolve_param_path(value, base_dir)
+        return value
+
+    def _resolve_param_path(self, value: str, base_dir: Path) -> str:
+        if not value or "://" in value or value.startswith("$"):
+            return value
+
+        path = Path(value)
+        if path.is_absolute():
+            return str(path)
+        return str((base_dir / path).resolve())
 
     def _merge(self, parent: Profile, child: Profile) -> Profile:
         """子 Profile 继承父配置，覆写差异项。"""

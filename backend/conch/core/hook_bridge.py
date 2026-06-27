@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.callbacks.base import AsyncCallbackHandler
+
 from conch.core.hooks import HookBus
 
 if TYPE_CHECKING:
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LangGraphHookBridge:
+class LangGraphHookBridge(AsyncCallbackHandler):
     """将 LangGraph/LangChain 回调事件桥接到 conch Hook 语义节点。
 
     用法（在编排 Plugin 中）:
@@ -41,10 +43,18 @@ class LangGraphHookBridge:
     """
 
     def __init__(self, hook_bus: HookBus, state: "State"):
+        self.raise_error = True
+        self.run_inline = True
         self.hook_bus = hook_bus
         self.state = state
 
     # ── LangChain BaseCallbackHandler 接口实现 ──────────────────
+
+    async def on_chat_model_start(
+        self, serialized: dict[str, Any], messages: list[list[Any]], **kwargs: Any
+    ) -> None:
+        """ChatModel 开始推理 → 触发 pre_model_call。"""
+        self.hook_bus.fire("pre_model_call", self.state)
 
     async def on_llm_start(
         self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
