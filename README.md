@@ -157,7 +157,7 @@ agent-conch/
 │   ├── components/             # chat / metrics 组件
 │   └── lib/                    # store / sse-client / api
 ├── benchmarks/                 # 评测任务集
-├── docs/                       # 技术方案 + 技术点文档
+├── docs/                       # 技术方案 + 技术点文档 v2
 └── AGENTS.md                   # 项目指令文件
 ```
 
@@ -174,26 +174,23 @@ agent-conch/
 
 - [技术方案 v2.0](docs/technical-design-v2.md) — 当前主线架构设计
 - [实现状态 v2](docs/implementation-status-v2.md) — MVP 完成情况与测试结果
+- [技术点详解 v2](docs/technical-points-v2/) — 10 篇核心组件实现原理与加载使用文档
 - [技术方案 v0.3](docs/technical-design.md) — 历史版本（已废弃，保留参考）
-- [技术点详解](docs/technical-points/) — 13 篇技术点深入文档
 
-### 技术点文档索引
+### 技术点文档索引（v2）
 
 | # | 技术点 | 文档 |
 |---|---|---|
-| 01 | 扩展点契约 | [01-extension-point.md](docs/technical-points/01-extension-point.md) |
-| 02 | 注册中心 | [02-registry.md](docs/technical-points/02-registry.md) |
-| 03 | Hook 与中间件 | [03-hook-and-middleware.md](docs/technical-points/03-hook-and-middleware.md) |
-| 04 | Profile 与实验框架 | [04-profile-and-experiment.md](docs/technical-points/04-profile-and-experiment.md) |
-| 05 | Agent Loop 引擎 | [05-agent-loop.md](docs/technical-points/05-agent-loop.md) |
-| 06 | 上下文管理 | [06-context-management.md](docs/technical-points/06-context-management.md) |
-| 07 | 工具系统与 MCP | [07-tool-system-mcp.md](docs/technical-points/07-tool-system-mcp.md) |
-| 08 | 记忆五分法 | [08-memory-five-types.md](docs/technical-points/08-memory-five-types.md) |
-| 09 | 多 Agent 协作 | [09-multi-agent-orchestration.md](docs/technical-points/09-multi-agent-orchestration.md) |
-| 10 | 可观测性与自观测 | [10-observability.md](docs/technical-points/10-observability.md) |
-| 11 | 沙箱与安全治理 | [11-sandbox-security.md](docs/technical-points/11-sandbox-security.md) |
-| 12 | 成本守卫与分级降级 | [12-cost-guard.md](docs/technical-points/12-cost-guard.md) |
-| 13 | Skill 系统 | [13-skill-system.md](docs/technical-points/13-skill-system.md) |
+| 01 | 可扩展核心：ExtensionPoint + Registry | [01-extension-registry.md](docs/technical-points-v2/01-extension-registry.md) |
+| 02 | Hook 总线 + Middleware + Hook Bridge | [02-hook-middleware-bridge.md](docs/technical-points-v2/02-hook-middleware-bridge.md) |
+| 03 | Profile 引擎 + 实验框架 | [03-profile-experiment.md](docs/technical-points-v2/03-profile-experiment.md) |
+| 04 | 编排引擎：LangGraph + single_loop | [04-orchestration.md](docs/technical-points-v2/04-orchestration.md) |
+| 05 | 工具系统：MCP Provider + builtin_shell | [05-tool-system.md](docs/technical-points-v2/05-tool-system.md) |
+| 06 | 护栏：NeMo + GuardrailPipeline | [06-guardrail.md](docs/technical-points-v2/06-guardrail.md) |
+| 07 | 上下文管理 + 记忆系统 | [07-context-memory.md](docs/technical-points-v2/07-context-memory.md) |
+| 08 | 成本守卫 + 可观测性 | [08-cost-observability.md](docs/technical-points-v2/08-cost-observability.md) |
+| 09 | LLM 接入：litellm 统一多模型 | [09-llm-provider.md](docs/technical-points-v2/09-llm-provider.md) |
+| 10 | API 层 + 运行时 | [10-api-runtime.md](docs/technical-points-v2/10-api-runtime.md) |
 
 ## 设计哲学
 

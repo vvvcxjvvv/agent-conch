@@ -46,4 +46,4 @@ benchmarks/               → 评测任务集
 
 ## 技术点文档索引
 
-详见 `docs/technical-points/` 目录，每个核心技术点有独立文档。
+详见 `docs/technical-points-v2/` 目录，10 篇核心组件实现原理与加载使用文档。旧 `docs/technical-points/` 已删除（v1 内容）。
