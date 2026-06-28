@@ -4,7 +4,7 @@
 > **定位**：可运行的 harness 应用 + 可扩展的研究底座（双栖）
 > **架构路线**：成熟框架底座 + agent-conch 式可扩展层
 > **文档版本**：v2.0（推翻 v0.3 实现，继承可扩展性精髓）
-> **最后更新**：2026-06-27
+> **最后更新**：2026-06-28
 
 ---
 
@@ -187,8 +187,14 @@ domains:
                      {command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "."]}
                    ]}}
   memory:         { impl: mem0, params: { user_id: "auto" } }
-  guardrail:      { impl: nemo_guardrails, params: { config: ./guardrail_configs/chat } }
-  observability:  { impl: langfuse_tracer, params: { project: "conch-prod" } }
+  guardrail:      { impl: stacked_guardrails, params: { providers: [
+                     { impl: nemo_guardrails, params: { config_dir: ./guardrail_configs/chat, use_nemo: false } },
+                     { impl: llamaguard_only, params: { blocked_categories: [destructive_code, data_exfiltration, violence, self_harm] } }
+                   ]}}
+  observability:  { impl: stacked_tracer, params: { providers: [
+                     { impl: console_tracer, params: {} },
+                     { impl: langfuse_tracer, params: { project: "conch-prod" } }
+                   ]}}
   eval:           { impl: deepeval_runner, params: { metrics: [answer_relevancy, faithfulness] } }
   context:        { impl: jit_compaction, params: { threshold: 0.4 } }
   governance:     { impl: allowlist_perms, params: { tools: [read_file, write_file, list_files] } }
@@ -240,6 +246,15 @@ class LangGraphHookBridge:
 ```
 
 **桥接的价值**：换编排引擎（LangGraph → 自建 Loop → AutoGen），只需新写一个桥接 Plugin，所有已有 Hook（审计、护栏、成本守卫）**零改动复用**。这正是"成熟框架底座 + 零侵入可扩展层"叠加的根本保证。
+
+**默认运行时装配（2026-06-28 已落地）**：
+- `pre_tool`：先走 `GovernanceProvider.check_permission()`，再走 `GuardrailPipeline.check_tool()`
+- `pre_tool`：调用 `GuardrailPipeline.check_tool()`，命中即中断工具执行
+- `post_model_call`：记录 usage 到 `State`，并执行 CostGuard 分级检查
+- `on_cost_exceeded`：回传 `cost_update` 事件；L4 直接中断任务
+- `post_step`：调用 observability tracer
+- `post_tool` / `on_tool_error`：写治理审计日志
+- `State.runtime_events`：把 `guardrail` / `cost_update` / `hitl_request` 事件交给 SSE 层透传前端
 
 ### 2.3 一次 Agent Step 的数据流
 
@@ -598,7 +613,10 @@ agent-conch/
 │   │   │   │   └── notes_file.py           # 文件笔记（v1 迁移，降级用）
 │   │   │   ├── guardrail/
 │   │   │   │   ├── nemo_guardrails.py      # NeMo 护栏
-│   │   │   │   └── llamaguard.py           # LlamaGuard
+│   │   │   │   ├── llamaguard.py           # LlamaGuard 分类器
+│   │   │   │   └── stacked_guardrails.py   # 组合型护栏 provider
+│   │   │   ├── governance/
+│   │   │   │   └── allowlist.py            # 最小权限 + 审计日志
 │   │   │   ├── observability/
 │   │   │   │   ├── langfuse_tracer.py      # Langfuse（默认）
 │   │   │   │   └── console_tracer.py       # 控制台（v1 迁移）
@@ -833,6 +851,54 @@ agent-conch/
 ---
 
 ## CHANGELOG
+
+### v2.0 — 2026-06-28（阶段二启动：默认 LangGraph 主路径接上护栏/成本闭环）
+
+- 新增默认运行时 Hook 装配：`pre_tool` 工具护栏、`post_model_call` usage 计账、`on_cost_exceeded` 成本中断、`post_step` trace
+- `State` 新增 `runtime_events` 队列，SSE 可实时透传 `guardrail` / `cost_update`
+- `LangGraphHookBridge` 与 `langgraph_react` 增强工具参数标准化与 Hook 中断上抛
+- `chat` SSE 路由改为携带运行时配置并转发 Hook 事件
+- 补充 3 项单测覆盖工具护栏、成本事件和运行时事件队列
+
+### v2.0 — 2026-06-28（阶段二推进：治理域最小权限与审计接入）
+
+- 新增 `governance/allowlist.py`，实现 `allowlist_perms` 最小权限治理与 JSONL 审计
+- `pre_tool` 先做治理校验，再做工具护栏；拒绝会回传 `governance` 层拦截事件
+- `post_tool` / `on_tool_error` 写治理审计日志
+- `user-chat-v1` profile 默认启用治理域（当前 `allow_all: true`，先审计不收紧）
+- 再补 1 项单测覆盖权限拒绝与审计落盘
+
+### v2.0 — 2026-06-28（阶段二推进：HITL WebSocket 审批闭环）
+
+- 新增 `api/hitl.py`：会话级审批请求、一次性审批令牌、WebSocket 广播
+- 新增 `api/routes/websocket.py`：`/api/chat/sessions/{id}/ws`，支持 `approve` / `deny`
+- `pre_tool` 命中 `require_approval_tools` 时会创建 `hitl_request`，批准后允许下一次完全相同的 tool+args 放行
+- 前端新增待审批面板和 WebSocket 客户端，批准后原地恢复同一任务
+- 再补 2 项单测覆盖审批 grant 消费和 `hitl_request` 触发
+
+### v2.0 — 2026-06-28（阶段二推进：Mem0 记忆闭环接入）
+
+- 新增 `adapters/memory/mem0_provider.py`，优先接真实 Mem0，未安装时回退到本地 JSONL 持久化
+- `user-chat-v1` profile 默认记忆后端切到 `mem0`
+- `chat` 路由构图前会按当前任务召回相关记忆并拼接到系统提示
+- 回合成功结束后会持久化 user / assistant 内容，形成跨轮/跨会话 episodic recall
+- 再补 2 项单测覆盖 Mem0 fallback 持久化与系统提示记忆注入
+
+### v2.0 — 2026-06-28（阶段二推进：LlamaGuard 二级分类接入）
+
+- 新增 `adapters/guardrail/llamaguard.py`，提供 `destructive_code` / `data_exfiltration` / `violence` / `self_harm` 四类风险分类
+- 新增 `adapters/guardrail/stacked_guardrails.py`，把 `NeMo -> LlamaGuard` 串成单个 `GuardrailProvider`
+- 默认 `user-chat-v1` profile 护栏切到 `stacked_guardrails`
+- `pre_model_call` 默认运行时 Hook 正式接入输入护栏，可在模型调用前中断危险请求
+- `post_model_call` 分类命中时会回传 `output` 层 guardrail 事件
+
+### v2.0 — 2026-06-28（阶段二收口：检索护栏 / 原地恢复 / Langfuse trace）
+
+- 记忆召回新增 relevance 排序与 `episodic / semantic / long_term / procedural` 联合检索
+- `chat` 路由在注入系统提示前执行检索护栏，过滤敏感与低相关记忆，并写 `guardrail_event` 审计
+- HITL 新增 `/api/chat/sessions/{id}/resume/{request_id}/stream`，审批后原地恢复任务，不重复追加用户消息
+- 新增 `observability/stacked_tracer.py`，默认并行启用 `console_tracer + langfuse_tracer`
+- Langfuse 事件记录补齐 `step/tool/guardrail/retrieval/hitl/cost` 链路
 
 ### v2.0 — 2026-06-27（推翻重做，成熟框架底座 + 可扩展层 + 用户前端）
 

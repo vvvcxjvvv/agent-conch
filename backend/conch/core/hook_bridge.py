@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -76,7 +77,12 @@ class LangGraphHookBridge(AsyncCallbackHandler):
     ) -> None:
         """工具开始执行 → 触发 pre_tool（中断白名单，可拦截高危工具）。"""
         tool_name = serialized.get("name", "unknown")
-        self.hook_bus.fire("pre_tool", self.state, tool=tool_name, args=input_str)
+        self.hook_bus.fire(
+            "pre_tool",
+            self.state,
+            tool=tool_name,
+            args=self._normalize_tool_args(input_str),
+        )
 
     async def on_tool_end(self, output: str, **kwargs: Any) -> None:
         """工具执行结束 → 触发 post_tool。"""
@@ -126,6 +132,23 @@ class LangGraphHookBridge(AsyncCallbackHandler):
         except Exception:
             logger.debug("Failed to parse LLM result for hook", exc_info=True)
         return action
+
+    def _normalize_tool_args(self, raw_args: Any) -> dict[str, Any]:
+        if isinstance(raw_args, dict):
+            return raw_args
+        if isinstance(raw_args, str):
+            stripped = raw_args.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    logger.debug("Failed to parse tool args JSON", exc_info=True)
+            return {"input": raw_args}
+        if raw_args is None:
+            return {}
+        return {"input": raw_args}
 
 
 # 预留：AutoGen 桥接（阶段四实现）

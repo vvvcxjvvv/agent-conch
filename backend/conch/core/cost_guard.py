@@ -61,6 +61,8 @@ class State:
     # v2 新增
     hook_bus: HookBus | None = None
     profile: "Profile | None" = None
+    session_id: str = ""
+    runtime_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def done(self) -> bool:
@@ -73,6 +75,16 @@ class State:
         usage = action.get("usage", {})
         self.total_tokens += usage.get("total_tokens", 0)
         self.total_cost += usage.get("cost", 0.0)
+
+    def emit_event(self, event: dict[str, Any]) -> None:
+        """缓存运行时事件，供 API/SSE 层转发。"""
+        self.runtime_events.append(event)
+
+    def drain_events(self) -> list[dict[str, Any]]:
+        """取出并清空运行时事件队列。"""
+        events = list(self.runtime_events)
+        self.runtime_events.clear()
+        return events
 
 
 class CostGuard:
@@ -109,7 +121,8 @@ class CostGuard:
         if level == DegradeLevel.NONE:
             return
 
-        state.degrade_level = max(state.degrade_level, level)
+        if level.value > state.degrade_level.value:
+            state.degrade_level = level
         if state.hook_bus:
             state.hook_bus.fire("on_cost_exceeded", state, level=level)
 

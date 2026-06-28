@@ -48,22 +48,11 @@ async function parseSSE(
   }
 }
 
-/** 发送聊天消息，流式接收 SSE 响应 */
-export async function streamChat(
-  sessionId: string,
-  message: string,
-  profile: string,
+async function handleStreamResponse(
+  response: Response,
   onEvent?: (evt: SSEEvent) => void
 ): Promise<void> {
   const store = useChatStore.getState();
-  store.startStreaming(message);
-
-  const response = await fetch(`${API_BASE}/chat/sessions/${sessionId}/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, profile }),
-  });
-
   if (!response.ok) {
     store.finishStreaming(false);
     throw new Error(`Stream failed: ${response.status}`);
@@ -88,7 +77,6 @@ export async function streamChat(
         if (d.call_id) {
           store.updateToolResult(d.call_id as string, d.result as string);
         } else {
-          // 按 tool 名匹配最近的未完成调用
           store.updateToolResult(
             useChatStore.getState().toolCalls.slice(-1)[0]?.callId || '',
             d.result as string
@@ -100,6 +88,15 @@ export async function streamChat(
           action: d.action as string,
           reason: d.reason as string,
           tool: d.tool as string | undefined,
+        });
+        break;
+      case 'hitl_request':
+        store.addHitlRequest({
+          requestId: d.request_id as string,
+          tool: d.tool as string,
+          args: d.args as Record<string, unknown>,
+          reason: d.reason as string,
+          status: 'pending',
         });
         break;
       case 'cost_update':
@@ -115,4 +112,39 @@ export async function streamChat(
     }
     onEvent?.(evt);
   });
+}
+
+/** 发送聊天消息，流式接收 SSE 响应 */
+export async function streamChat(
+  sessionId: string,
+  message: string,
+  profile: string,
+  onEvent?: (evt: SSEEvent) => void
+): Promise<void> {
+  const store = useChatStore.getState();
+  store.startStreaming(message);
+
+  const response = await fetch(`${API_BASE}/chat/sessions/${sessionId}/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, profile }),
+  });
+
+  await handleStreamResponse(response, onEvent);
+}
+
+export async function resumeChat(
+  sessionId: string,
+  requestId: string,
+  onEvent?: (evt: SSEEvent) => void
+): Promise<void> {
+  const store = useChatStore.getState();
+  store.startResumeStreaming();
+
+  const response = await fetch(`${API_BASE}/chat/sessions/${sessionId}/resume/${requestId}/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  await handleStreamResponse(response, onEvent);
 }

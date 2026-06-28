@@ -6,7 +6,7 @@ import { Session, ProfileInfo, listSessions, createSession, deleteSession, listP
 
 interface SidebarProps {
   currentSessionId: string | null;
-  onSelectSession: (id: string) => void;
+  onSelectSession: (id: string | null) => void;
   selectedProfile: string;
   onSelectProfile: (name: string) => void;
 }

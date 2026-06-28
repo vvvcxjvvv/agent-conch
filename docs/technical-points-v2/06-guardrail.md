@@ -1,18 +1,18 @@
-# 06 — 护栏体系：NeMo + GuardrailPipeline + 六层防御
+# 06 — 护栏体系：NeMo + LlamaGuard + GuardrailPipeline + 六层防御
 
-> **代码位置**：`backend/conch/core/guardrail_pipeline.py`（95 行）、`backend/conch/adapters/guardrail/nemo_guardrails.py`（140 行）
+> **代码位置**：`backend/conch/core/guardrail_pipeline.py`、`backend/conch/adapters/guardrail/{nemo_guardrails,llamaguard,stacked_guardrails}.py`、`backend/conch/api/deps.py`
 > **对应 ETCLOVG**：E 层（护栏模块）
 
 ## 1. 六层纵深防御映射
 
 | 层 | 机制 | 实现 |
 |----|------|------|
-| 1. 输入筛查 | `pre_model_call` Hook → `GuardrailPipeline.run_input()` | `NemoGuardrail.check_input()` |
+| 1. 输入筛查 | `pre_model_call` Hook → `GuardrailPipeline.run_input()` | `StackedGuardrails.check_input()` → `NeMo` → `LlamaGuard` |
 | 2. LLM 推理 | 模型内置 safety + litellm 参数 | `LiteLLMProvider` 调用参数 |
-| 3. 工具护栏 | `pre_tool` Hook（可中断）→ `GuardrailPipeline.check_tool()` | `NemoGuardrail.check_tool()` |
-| 4. 检索护栏 | 记忆 Pipeline 中间件 | notes_file / Mem0（阶段二） |
-| 5. 输出筛查 | `post_model_call` Hook → `GuardrailPipeline.run_output()` | `NemoGuardrail.check_output()` |
-| 6. 监控审计 | `on_tool_error` / `post_tool` Hook → 审计日志 | Langfuse + 自研审计 |
+| 3. 工具护栏 | `pre_tool` Hook（可中断）→ 治理校验 + `GuardrailPipeline.check_tool()` | `AllowlistGovernance.check_permission()` + `NeMo/LlamaGuard.check_tool()` |
+| 4. 检索护栏 | 记忆召回后注入前过滤 | `chat.py` relevance filter + 敏感内容过滤 |
+| 5. 输出筛查 | `post_model_call` Hook → `GuardrailPipeline.run_output()` | `StackedGuardrails.check_output()` |
+| 6. 监控审计 | `guardrail_event` / `on_tool_error` / `post_tool` Hook → 审计日志 | Langfuse + 自研审计 |
 
 ## 2. GuardrailPipeline — 护栏编排引擎
 
@@ -39,7 +39,7 @@ class GuardrailPipeline:
 
 `GuardrailMiddleware.process()` 调用 `provider.check_input/output()`，`blocked=True` 抛 `GuardrailBlocked` 异常。
 
-## 3. NemoGuardrail（两层模式）
+## 3. NemoGuardrail（第一层）
 
 ### 模式一：NeMo 引擎（完整模式）
 
@@ -80,37 +80,106 @@ def _check_with_keywords(self, text):
 
 当 `use_nemo=False` 或 NeMo 未安装时自动降级，满足 MVP 退出标准（3 条有害输入 100% 拦截）。
 
-## 4. 护栏触发流程
+## 4. LlamaGuardClassifier（第二层）
+
+```python
+@registry.register("guardrail", "llamaguard_only", "1.0")
+class LlamaGuardClassifier(Plugin, GuardrailProvider):
+    def check_input(self, text, state):
+        return self._classify(text)
+
+    def check_output(self, text, state):
+        return self._classify(text)
+
+    def check_tool(self, tool, args, state):
+        return self._classify(f"{tool}\n{args}")
+```
+
+当前内置类别：
+
+- `destructive_code`
+- `data_exfiltration`
+- `violence`
+- `self_harm`
+
+命中后返回：
+
+```python
+GuardrailResult(
+    blocked=True,
+    reason="LlamaGuard blocked category: data_exfiltration",
+    action="block",
+)
+```
+
+## 5. StackedGuardrails（串联执行）
+
+```python
+@registry.register("guardrail", "stacked_guardrails", "1.0")
+class StackedGuardrails(Plugin, GuardrailProvider):
+    def check_input(self, text, state):
+        return self._run_text_chain("input", text, state)
+```
+
+默认 profile 现在走：
+
+```yaml
+guardrail:
+  impl: stacked_guardrails
+  params:
+    providers:
+      - impl: nemo_guardrails
+      - impl: llamaguard_only
+```
+
+链路语义：
+
+- 前层先拦
+- 前层 `sanitized` 则把清洗结果继续传给后层
+- 任一层 `blocked` 立即中断
+
+## 6. 护栏触发流程
 
 ```
 编排 Plugin.run()
   └─ LangGraphHookBridge
        ├─ on_llm_start → hook_bus.fire("pre_model_call", state)
-       │    └─ (Hook 中调 guardrail_pipeline.run_input(user_text))
-       │         └─ NemoGuardrail.check_input()
-       │              └─ blocked → GuardrailBlocked → SSE guardrail 事件
+       │    └─ guardrail_pipeline.run_input(state.task)
+       │         └─ StackedGuardrails.check_input()
+       │              ├─ NemoGuardrail.check_input()
+       │              └─ LlamaGuardClassifier.check_input()
+       │                   └─ blocked → HookInterrupted → SSE input guardrail 事件
        │
        ├─ on_tool_start → hook_bus.fire("pre_tool", state, tool, args)
+       │    ├─ governance.check_permission(tool, args)
+       │    │    └─ denied → 审计日志 + governance 层拦截事件
        │    └─ guardrail_pipeline.check_tool(tool, args)
        │         └─ blocked → HookInterrupted → 工具跳过
        │
        └─ on_llm_end → hook_bus.fire("post_model_call", state, action)
             └─ guardrail_pipeline.run_output(llm_text)
+                 └─ 命中时回传 output guardrail 事件
 ```
 
-## 5. 加载使用方式
+## 7. 加载使用方式
 
 ```python
 # deps.py: build_runtime()
 if "guardrail" in profile.domains:
     rt.guardrail_provider = registry.build("guardrail", cfg.impl, ...)
 rt.guardrail_pipeline = GuardrailPipeline(rt.guardrail_provider, rt.state)
+
+# _install_runtime_hooks()
+hook_bus.register("pre_model_call", guardrail_pre_model_call, priority=5)
+hook_bus.register("pre_tool", guardrail_pre_tool, priority=10)
 ```
 
 `guardrail_pipeline` 被注入到 `rt.state` 中，编排 Plugin 通过 Hook 或显式调用触发。
 
-## 6. 可扩展点
+## 8. 可扩展点
 
 - 新护栏模型 → 实现 `GuardrailProvider` 三方法 + `@register("guardrail", ...)`
+- 多层组合 → 继续扩展 `stacked_guardrails.providers`
 - 新护栏层 → `GuardrailPipeline.input_pipeline.add(NewMiddleware(...))`
 - 工具护栏白名单 → Governance domain `check_permission` + `pre_tool` Hook 联动
+- 检索护栏增强 → 扩展 `chat.py` 中的 relevance / sensitive filter

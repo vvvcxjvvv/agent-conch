@@ -11,12 +11,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, AsyncIterator
 
 from conch.core.extension import Plugin
 from conch.core.hook_bridge import LangGraphHookBridge
+from conch.core.hooks import HookInterrupted
 from conch.core.registry import registry
 
 logger = logging.getLogger(__name__)
@@ -122,8 +124,19 @@ class LangGraphReActOrchestrator(Plugin):
             bridge = LangGraphHookBridge(state.hook_bus, state)
 
         config: dict[str, Any] = {"recursion_limit": self.recursion_limit}
+        callbacks: list[Any] = []
         if bridge:
-            config["callbacks"] = [bridge]
+            callbacks.append(bridge)
+        runtime_cfg = agents[0] if agents and isinstance(agents[0], dict) else {}
+        observability = runtime_cfg.get("observability")
+        callback_handlers = getattr(observability, "callback_handlers", None)
+        if isinstance(callback_handlers, list):
+            callbacks.extend(callback_handlers)
+        callback_handler = getattr(observability, "callback_handler", None)
+        if callback_handler is not None:
+            callbacks.append(callback_handler)
+        if callbacks:
+            config["callbacks"] = callbacks
 
         task_text = task if isinstance(task, str) else str(task)
         inputs = {"messages": [{"role": "user", "content": task_text}]}
@@ -144,8 +157,7 @@ class LangGraphReActOrchestrator(Plugin):
                 # 工具开始
                 elif evt_type == "on_tool_start":
                     current_tool = name
-                    input_str = data.get("input", "")
-                    args = input_str if isinstance(input_str, dict) else {}
+                    args = self._normalize_tool_args(data.get("input", {}))
                     yield {"type": "tool_call", "tool": name, "args": args}
 
                 # 工具结束
@@ -157,6 +169,9 @@ class LangGraphReActOrchestrator(Plugin):
 
             yield {"type": "done", "success": True}
 
+        except HookInterrupted as e:
+            logger.info("LangGraph ReAct interrupted by hook: %s", e.reason)
+            yield {"type": "done", "success": False, "error": e.reason}
         except Exception as e:
             logger.exception("LangGraph ReAct orchestration failed")
             yield {"type": "done", "success": False, "error": str(e)}
@@ -169,3 +184,20 @@ class LangGraphReActOrchestrator(Plugin):
 
     async def conflict_resolve(self, results: list[Any], state: Any) -> Any:
         return results[0] if results else None
+
+    def _normalize_tool_args(self, raw_args: Any) -> dict[str, Any]:
+        if isinstance(raw_args, dict):
+            return raw_args
+        if isinstance(raw_args, str):
+            stripped = raw_args.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    logger.debug("Failed to parse tool args JSON", exc_info=True)
+            return {"input": raw_args}
+        if raw_args is None:
+            return {}
+        return {"input": raw_args}

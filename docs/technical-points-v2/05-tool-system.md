@@ -85,6 +85,8 @@ class BuiltinShellProvider(Plugin):
        └─ graph.astream_events(v2)
             └─ on_tool_start:
                  ├─ LangGraphHookBridge → hook_bus.fire("pre_tool", ...)
+                 │    ├─ 治理检查: GovernanceProvider.check_permission(tool, args)
+                 │    │    └─ denied → 审计日志 + HookInterrupted → 工具跳过
                  │    └─ 护栏检查: GuardrailPipeline.check_tool(tool, args)
                  │         └─ blocked → HookInterrupted → 工具跳过
                  ├─ ToolProvider.execute(tool, args, state)
@@ -92,6 +94,7 @@ class BuiltinShellProvider(Plugin):
                  │         └─ 返回 ToolResult
                  └─ on_tool_end:
                       ├─ LangGraphHookBridge → hook_bus.fire("post_tool", ...)
+                      │    └─ GovernanceProvider.audit("tool_result", ...)
                       └─ SSE > tool_result → 前端
 ```
 
@@ -113,3 +116,4 @@ rt.orchestrator.build_graph(tools, sys_prompt)  # 注入编排图
 - 新 MCP server → Profile 中 servers 列表追加一项，零代码改动
 - 工具沙箱 → `BuiltinShellProvider` 扩展 `run_bash` 的 Docker 配置
 - 工具权限 → `GovernanceProvider.check_permission` 与 Hook `pre_tool` 联动
+- 工具审计 → `GovernanceProvider.audit` 与 Hook `post_tool` / `on_tool_error` 联动

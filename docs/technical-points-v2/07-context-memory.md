@@ -1,6 +1,6 @@
 # 07 — 上下文管理 + 记忆系统
 
-> **代码位置**：`backend/conch/adapters/context/jit_compaction.py`（110 行）、`backend/conch/adapters/memory/notes_file.py`（110 行）
+> **代码位置**：`backend/conch/adapters/context/jit_compaction.py`、`backend/conch/adapters/memory/{mem0_provider,notes_file}.py`、`backend/conch/api/routes/chat.py`
 > **对应 ETCLOVG**：C 层（上下文工程）+ E 层（状态与记忆）
 
 ## 1. JitCompaction — JIT + 40% 阈值守卫
@@ -45,7 +45,7 @@ class JitCompaction(Plugin):
 | `sliding_window` | 接口预留 | 阶段二 |
 | `semantic_compression` | 接口预留 | 阶段二（需 LLM 辅助） |
 
-## 2. NotesFileMemory — 基于文件的结构化记忆
+## 2. NotesFileMemory — MVP 降级记忆
 
 > 对齐五分法：短期（short-term）+ 情景（episodic）。语义/长期/程序性延后到阶段二（Mem0）。
 
@@ -95,21 +95,77 @@ on_unload() → 默认不清理（episodic 已在 store 时 flush）
 
 阶段二接入 Mem0 后，`MemoryProvider` 接口不变，只需 `@register("memory", "mem0", "1.0")` 新实现。
 
-## 3. 加载使用方式
+## 3. Mem0MemoryProvider — 阶段二记忆闭环
+
+> 当前实现优先接真实 Mem0；若本地未安装或初始化失败，则自动回退到 JSONL 持久化。
+
+### 实现原理
+
+```python
+@registry.register("memory", "mem0", "1.0")
+class Mem0MemoryProvider(Plugin):
+    def on_load(self):
+        self._init_mem0()                 # 可用则接真实 Mem0
+        self._load_fallback_records()     # 始终保留本地 JSONL 兜底
+
+    def store(self, key, value, mem_type="episodic"):
+        if self._mem0 is not None:
+            self._mem0.add(...)
+        self._records.append(record)
+        self._flush_fallback_records()
+
+    def recall(self, query, mem_type="episodic", limit=5):
+        if self._mem0 is not None:
+            result = self._mem0.search(...)
+            if result:
+                return normalize(result)
+        return self._fallback_recall(query, mem_type, limit)   # 本地 relevance 排序
+```
+
+### 当前增强点
+
+- `fallback_recall` 已支持相关度打分与排序
+- `episodic` 查询会联带召回 `semantic / long_term / procedural`
+- 召回结果会携带 `score`
+- `chat.py` 会在注入系统提示前执行检索护栏
+
+### 当前接线位置
+
+```python
+# chat.py
+memory_context = rt.memory.recall(task, mem_type="episodic", limit=3)
+memory_context = filter_recalled_memories(memory_context)   # 检索护栏
+system_prompt = f"{system_prompt}\n\nRelevant memory:\n..."
+
+# 对话成功结束后
+rt.memory.store("user:...", {"role": "user", "content": user_message}, "episodic")
+rt.memory.store("assistant:...", {"role": "assistant", "content": reply}, "episodic")
+```
+
+效果：
+
+- 构图前按当前任务召回相关记忆
+- 召回结果按相关度排序
+- 敏感或低相关记忆在注入前被过滤
+- 召回内容通过系统提示注入 LangGraph
+- 当前回合成功结束后写入 user / assistant 记忆
+- 新会话可复用旧偏好与事实信息
+
+## 4. 加载使用方式
 
 ```python
 # deps.py: build_runtime()
 if "context" in profile.domains:
     rt.context_mgr = registry.build("context", "jit_compaction", ...)
 if "memory" in profile.domains:
-    rt.memory = registry.build("memory", "notes_file", ...)
+    rt.memory = registry.build("memory", "mem0", ...)
 ```
 
 编排 Plugin 在每步开始时调 `context_mgr.assemble(task, state)` 组装上下文，CostGuard 触发 compaction 时调 `compact()`。记忆在工具调用后存储（`memory.store(key, result, "episodic")`），下次任务开始时检索。
 
-## 4. 可扩展点
+## 5. 可扩展点
 
 - 新压缩算法 → 实现 `ContextManager.compact()` + `@register("context", ...)`
 - 新检索策略 → 改写 `recall()` 方法（向量检索 → Mem0）
 - 新记忆后端 → 实现 `MemoryProvider.store/recall` + `@register("memory", ...)`
-- 语义记忆 → 阶段二 `mem0` adapter
+- 语义排序 / 长期记忆提升 → 在 `mem0_provider.py` 内继续增强，不改核心接口

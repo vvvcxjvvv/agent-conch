@@ -9,6 +9,7 @@ MVP 可选：未配置 Langfuse 时用 console_tracer 兜底。
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from conch.core.extension import Plugin
@@ -51,6 +52,7 @@ class LangfuseTracer(Plugin):
         self._total_tokens = 0
         self._total_cost = 0.0
         self._steps = 0
+        self._events: list[dict[str, Any]] = []
 
     def on_load(self) -> None:
         try:
@@ -81,6 +83,27 @@ class LangfuseTracer(Plugin):
         if state and hasattr(state, "total_tokens"):
             self._total_tokens = state.total_tokens
             self._total_cost = state.total_cost
+            action = state.actions[-1] if getattr(state, "actions", None) else None
+            self.record_event(
+                "step_trace",
+                {
+                    "session_id": getattr(state, "session_id", ""),
+                    "step": state.steps,
+                    "degrade_level": getattr(getattr(state, "degrade_level", None), "name", "NONE"),
+                    "action": action,
+                    "total_tokens": state.total_tokens,
+                    "total_cost": state.total_cost,
+                },
+            )
+
+    def record_event(self, name: str, payload: dict[str, Any]) -> None:
+        self._events.append(
+            {
+                "name": name,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "payload": payload,
+            }
+        )
 
     def metrics(self) -> dict[str, Any]:
         """返回当前累计指标。"""
@@ -89,4 +112,5 @@ class LangfuseTracer(Plugin):
             "total_tokens": self._total_tokens,
             "total_cost": self._total_cost,
             "project": self.project,
+            "trace_events": len(self._events),
         }

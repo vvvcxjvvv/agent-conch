@@ -1,6 +1,6 @@
 # 08 — 成本守卫 + 可观测性
 
-> **代码位置**：`backend/conch/core/cost_guard.py`（105 行）、`backend/conch/adapters/observability/langfuse_tracer.py`（90 行）、`console_tracer.py`（120 行）
+> **代码位置**：`backend/conch/core/cost_guard.py`、`backend/conch/adapters/observability/{langfuse_tracer,console_tracer,stacked_tracer}.py`、`backend/conch/api/deps.py`
 > **对应 ETCLOVG**：O 层（可观测性）+ 横切成本控制
 
 ## 1. CostGuard — Token Budget 分级降级
@@ -49,9 +49,9 @@ class State:
 
 编排 Plugin 每步后调 `cost_guard.check(state)`，根据返回值执行降级。
 
-## 2. 可观测性 — 双模式
+## 2. 可观测性 — 组合模式
 
-### LangfuseTracer（可选）
+### LangfuseTracer
 
 ```python
 @registry.register("observability", "langfuse_tracer", "1.0")
@@ -60,13 +60,14 @@ class LangfuseTracer(Plugin):
         handler = CallbackHandler(public_key=..., secret_key=..., host=...)
         self._callback_handler = handler  # 挂到 LangGraph config.callbacks
 
-    def trace(self, state):  # 记录 step trace
-    def metrics(self):       # 返回累计指标 {steps, tokens, cost}
+    def trace(self, state):        # 记录 step trace
+    def record_event(self, ...):   # 记录 guardrail / tool / hitl / retrieval 事件
+    def metrics(self):             # 返回累计指标 {steps, tokens, cost, trace_events}
 ```
 
-当 Profile 中 `observability.impl = langfuse_tracer` 时启用，自动挂为 LangChain callback，全链路 trace 记录。
+当前除了 callback 以外，还会把运行时 Hook 事件同步记到本地 `trace_events` 缓冲，形成 step/tool/guardrail/cost 链路。
 
-### ConsoleTracer（MVP 默认）
+### ConsoleTracer
 
 ```python
 @registry.register("observability", "console_tracer", "1.0")
@@ -79,6 +80,28 @@ class ConsoleTracer(Plugin):
 ```
 
 Langfuse 未配置时兜底，控制台输出轨迹。
+
+### StackedTracer（阶段二默认）
+
+```python
+@registry.register("observability", "stacked_tracer", "1.0")
+class StackedTracer(Plugin):
+    def callback_handlers(self):
+        return [console?, langfuse?]
+
+    def trace(self, state):
+        for provider in self.providers:
+            provider.trace(state)
+
+    def record_event(self, name, payload):
+        for provider in self.providers:
+            provider.record_event(name, payload)
+```
+
+默认 profile 已切到 `stacked_tracer`：
+
+- `console_tracer`：本地指标与 stderr 轨迹
+- `langfuse_tracer`：LangChain callback + 本地事件缓冲
 
 ## 3. 加载使用方式
 
@@ -94,6 +117,11 @@ if level != DegradeLevel.NONE:
 
 # 可观测 trace
 rt.observability.trace(state)   # → Langfuse / Console
+
+# 运行时事件
+record_event("guardrail_event", {...})
+record_event("retrieval_recall", {...})
+record_event("hitl_request", {...})
 ```
 
 ## 4. 实时指标传递（SSE → 前端）
@@ -109,4 +137,5 @@ rt.observability.trace(state)   # → Langfuse / Console
 
 - 新降级策略 → `CostGuard.check()` 加阈值分支
 - 新可观测后端 → 实现 `ObservabilityProvider.trace/metrics` + `@register`
+- 多后端并行 → `stacked_tracer.providers` 继续扩展
 - 新指标 → `State` 加字段 + `trace()` 记录 + SSE 事件

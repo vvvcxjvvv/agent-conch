@@ -4,9 +4,10 @@ import { useEffect, useRef } from 'react';
 import { useChatStore } from '@/lib/store';
 import ToolCard from './ToolCard';
 import GuardrailBanner from './GuardrailBanner';
+import HitlApprovalPanel from './HitlApprovalPanel';
 
 export default function MessageList() {
-  const { messages, currentAssistantMsg, status, toolCalls, guardrailEvents } = useChatStore();
+  const { messages, currentAssistantMsg, status, toolCalls, guardrailEvents, hitlRequests } = useChatStore();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,6 +64,9 @@ export default function MessageList() {
 
       {/* 护栏提示 */}
       <GuardrailBanner events={guardrailEvents} />
+
+      {/* HITL 审批 */}
+      <HitlApprovalPanel requests={hitlRequests} />
 
       <div ref={endRef} />
     </div>

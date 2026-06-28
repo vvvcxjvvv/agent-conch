@@ -42,6 +42,7 @@ INTERRUPTIBLE_HOOKS = {
     "on_tool_error",
     "pre_step",
     "pre_tool",
+    "pre_model_call",
     "on_cost_exceeded",
     "on_error",
 }

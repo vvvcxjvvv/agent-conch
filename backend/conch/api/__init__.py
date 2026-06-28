@@ -15,7 +15,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from conch.api.routes import chat, plugin, profile, session
+from conch.api.routes import chat, plugin, profile, session, websocket
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(profile.router, prefix="/api/profiles", tags=["profiles"])
     app.include_router(plugin.router, prefix="/api/plugins", tags=["plugins"])
+    app.include_router(websocket.router, prefix="/api/chat", tags=["websocket"])
 
     @app.get("/api/health", tags=["health"])
     async def health():

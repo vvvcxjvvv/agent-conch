@@ -31,7 +31,7 @@ except ImportError:
     _HAS_PYDANTIC = False
 
 
-_PATH_PARAM_KEYS = {"file", "config_dir", "path", "dir"}
+_PATH_PARAM_KEYS = {"file", "config_dir", "path", "dir", "audit_file", "audit_dir"}
 
 
 # ── 数据模型（纯 Python dataclass，无依赖可用）──────────────────
