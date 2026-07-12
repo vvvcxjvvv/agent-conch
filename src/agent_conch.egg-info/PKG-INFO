@@ -1,0 +1,51 @@
+Metadata-Version: 2.4
+Name: agent-conch
+Version: 0.1.0
+Summary: Agent-Conch: 全栈通用 AI Agent Harness, 基于 ETCLOVG 七层模型
+Author: chanchan
+License: MIT
+Keywords: ai,agent,harness,llm
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: litellm>=1.40.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: click>=8.1.0
+Requires-Dist: tiktoken>=0.7.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: mcp>=1.0.0
+Provides-Extra: cli
+Requires-Dist: rich>=13.7.0; extra == "cli"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"
+Requires-Dist: ruff>=0.5.0; extra == "dev"
+Requires-Dist: mypy>=1.10.0; extra == "dev"
+Requires-Dist: rich>=13.7.0; extra == "dev"
+
+# Agent-Conch
+
+全栈通用 AI Agent Harness，基于 ETCLOVG 七层模型。
+
+## 快速开始
+
+```bash
+# 安装
+pip install -e ".[dev]"
+
+# 运行
+conch run "读取 README.md 并总结"
+
+# 查看工具
+conch tools
+
+# 回放轨迹
+conch replay <session_id>
+```
+
+## 架构
+
+基于 ETCLOVG 七层模型 + H=(E,T,C,S,L,V) 六组件形式化模型。
+
+详见 `agent-conch-design.md`。

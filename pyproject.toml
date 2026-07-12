@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-conch"
+version = "0.1.0"
+description = "Agent-Conch: 全栈通用 AI Agent Harness, 基于 ETCLOVG 七层模型"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "chanchan" }]
+keywords = ["ai", "agent", "harness", "llm"]
+
+dependencies = [
+    "litellm>=1.40.0",
+    "pydantic>=2.7.0",
+    "httpx>=0.27.0",
+    "click>=8.1.0",
+    "tiktoken>=0.7.0",
+    "pyyaml>=6.0",
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "rich>=13.7.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "rich>=13.7.0",
+]
+
+[project.scripts]
+conch = "agent_conch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+
