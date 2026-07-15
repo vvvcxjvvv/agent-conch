@@ -111,6 +111,54 @@ class ConchEngine:
             agents_md=agents_md,
         )
 
+        # === C 层: Context Engine + 压缩 + Caching + Skill + Memory (P2) ===
+        from agent_conch.context.engine import LegacyEngine, SimpleTokenCounter
+        from agent_conch.context.compact.pipeline import ContextCompressor
+        from agent_conch.context.prompt_caching import PromptCaching
+        from agent_conch.context.skills.registry import SkillLoader, SkillInjector
+        from agent_conch.context.memory.manager import MemoryManager
+
+        self.token_counter = SimpleTokenCounter()
+        self.context_compressor = ContextCompressor(token_counter=self.token_counter)
+        self.context_engine = LegacyEngine(
+            db=self.session_db,
+            system_prompt=self.system_prompt,
+            token_counter=self.token_counter,
+        )
+
+        # Prompt Caching (Anthropic 支持 cache_control, 其他 no-op)
+        model_provider = self.config.model.name.split("/")[0] if "/" in self.config.model.name else ""
+        self.prompt_caching = PromptCaching(
+            enabled=self.config.agent_loop.auto_compact,
+            provider=model_provider,
+        )
+
+        # Skill 体系
+        self.skill_loader = SkillLoader(
+            cwd=self.cwd,
+            bundled_dir=os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills"),
+        )
+        self.skills = self.skill_loader.load_all()
+        self.skill_injector = SkillInjector(self.skills)
+        # 注入匹配的 skills 到 system prompt
+        self.system_prompt = self.skill_injector.inject(
+            self.system_prompt, query="agent coding tools"
+        )
+
+        # 分层记忆
+        self.memory_manager = MemoryManager(
+            db=self.session_db,
+            memory_dir=str(self.config.state.storage_path / "memory"),
+        )
+
+        # === S 层: Checkpoint (P2) ===
+        from agent_conch.state.checkpoint import CheckpointManager
+        self.checkpoint_manager = CheckpointManager(self.session_db)
+
+        # === L 层: Subagent (P2) ===
+        from agent_conch.multiagent.subagent import SubagentManager
+        self.subagent_manager = SubagentManager(self.session_db)
+
         # === Runtime ===
         runtime_config = RuntimeConfig(
             name="builtin",
@@ -130,6 +178,8 @@ class ConchEngine:
             layers=self.layer_manager,
             system_prompt=self.system_prompt,
             sandbox_mode=self.config.sandbox.mode,
+            context_engine=self.context_engine,
+            prompt_caching=self.prompt_caching,
         )
 
         self.runtime = BuiltinConchRuntime(runtime_config, self.agent_loop)

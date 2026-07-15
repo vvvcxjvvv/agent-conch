@@ -64,6 +64,8 @@ class AgentLoop:
         layers: LayerManager,
         system_prompt: str = "",
         sandbox_mode: str = "non-main",
+        context_engine: Any = None,
+        prompt_caching: Any = None,
     ):
         self.config = config
         self.db = session_db
@@ -73,6 +75,9 @@ class AgentLoop:
         self.system_prompt = system_prompt
         self.sandbox_mode = sandbox_mode
         self.error_classifier = ErrorClassifier()
+        # P2: Context Engine + Prompt Caching
+        self.context_engine = context_engine
+        self.prompt_caching = prompt_caching
 
     async def run(self, session_id: str, user_input: str) -> AgentResult:
         """执行 Agent run.
@@ -95,6 +100,10 @@ class AgentLoop:
                 cwd="",
                 model_name=self.config.model_name,
             )
+
+        # P2: Context Engine bootstrap
+        if self.context_engine is not None:
+            await self.context_engine.bootstrap(session_id)
 
         # 添加用户消息
         self.db.add_message(session_id, "user", user_input, turn_index=0)
@@ -137,6 +146,10 @@ class AgentLoop:
             turn_count += 1
             turn_id = self.db.start_turn(session_id, turn_count)
             turn_start = time.time()
+
+            # P2: Context Engine maintain (auto-compact check)
+            if self.context_engine is not None:
+                await self.context_engine.maintain(session_id)
 
             try:
                 # === Think: 调用 LLM ===
@@ -258,6 +271,13 @@ class AgentLoop:
                     )
                 # 否则继续下一轮
 
+            # P2: Context Engine after_turn
+            if self.context_engine is not None:
+                await self.context_engine.after_turn(
+                    session_id,
+                    {"turn_index": turn_count, "tool_calls": tool_calls_count},
+                )
+
         # Layer: on_graph_end
         await self.layers.on_graph_end(graph_ctx)
 
@@ -317,16 +337,30 @@ class AgentLoop:
     async def _call_model(self, session_id: str) -> LLMResponse:
         """调用 LLM (通过 litellm).
 
-        P1: 直接使用 litellm.acompletion.
+        P2: 通过 Context Engine 组装上下文 + Prompt Caching.
+        P1 fallback: 直接从 DB 加载消息.
         """
-        # 组装消息
-        messages: list[dict[str, Any]] = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
+        # P2: 使用 Context Engine 组装上下文
+        if self.context_engine is not None:
+            from agent_conch.context.engine import TokenBudget
 
-        # 从 DB 加载历史消息
-        db_messages = self.db.get_messages_as_dicts(session_id)
-        messages.extend(db_messages)
+            budget = TokenBudget(
+                total=128000,
+                reserved_for_response=self.config.max_tokens,
+            )
+            assembled = await self.context_engine.assemble(session_id, budget)
+            messages = assembled.messages
+        else:
+            # P1 fallback: 直接从 DB 加载
+            messages: list[dict[str, Any]] = []
+            if self.system_prompt:
+                messages.append({"role": "system", "content": self.system_prompt})
+            db_messages = self.db.get_messages_as_dicts(session_id)
+            messages.extend(db_messages)
+
+        # P2: 应用 Prompt Caching
+        if self.prompt_caching is not None:
+            messages = self.prompt_caching.apply(messages)
 
         # 获取工具 schema
         tool_schemas = await self.tools.get_available_schemas(include_core_only=True)

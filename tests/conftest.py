@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from agent_conch.state.session_db import SessionDB
+
 
 @pytest.fixture
 def tmp_workspace(tmp_path: Path) -> Path:
@@ -44,3 +46,11 @@ def tmp_workspace(tmp_path: Path) -> Path:
 def temp_db(tmp_path: Path) -> str:
     """临时 SQLite 数据库路径."""
     return str(tmp_path / "test_state.db")
+
+
+@pytest.fixture
+def tmp_db(tmp_path: Path) -> SessionDB:
+    """临时 SessionDB 实例 (自动清理)."""
+    db = SessionDB(tmp_path / "test_state.db")
+    yield db
+    db.close()
