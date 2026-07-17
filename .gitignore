@@ -32,3 +32,5 @@ trajectories/
 
 # Logs
 *.log
+
+.idea
