@@ -250,9 +250,10 @@ class SessionDB:
         msgs = self.get_messages(session_id, limit)
         result: list[dict] = []
         for m in msgs:
-            entry: dict[str, Any] = {"role": m.role}
-            if m.content:
-                entry["content"] = m.content
+            entry: dict[str, Any] = {
+                "role": m.role,
+                "content": m.content or "",
+            }
             if m.tool_calls:
                 entry["tool_calls"] = m.tool_calls
             if m.tool_call_id:

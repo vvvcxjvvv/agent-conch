@@ -68,6 +68,30 @@ class TestSessionDB:
         assert dicts[0]["role"] == "user"
         assert dicts[0]["content"] == "Hello"
 
+    def test_get_messages_as_dicts_keeps_empty_content(self, db: SessionDB):
+        db.create_session("test-empty-content")
+        tool_calls = [{"id": "call_1", "function": {"name": "read_file", "arguments": "{}"}}]
+        db.add_message(
+            "test-empty-content",
+            "assistant",
+            "",
+            tool_calls=tool_calls,
+            turn_index=1,
+        )
+        db.add_message(
+            "test-empty-content",
+            "tool",
+            "",
+            tool_call_id="call_1",
+            turn_index=1,
+        )
+
+        dicts = db.get_messages_as_dicts("test-empty-content")
+        assert dicts[0]["content"] == ""
+        assert dicts[0]["tool_calls"] == tool_calls
+        assert dicts[1]["content"] == ""
+        assert dicts[1]["tool_call_id"] == "call_1"
+
     def test_turn_lifecycle(self, db: SessionDB):
         db.create_session("test-006")
         turn_id = db.start_turn("test-006", 1)
