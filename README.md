@@ -1,56 +1,173 @@
 # Agent-Conch
 
-全栈通用 AI Agent Harness，以 **ETCLOVG 七层模型**为架构骨架。
+> 全栈通用 AI Agent Harness | 基于 ETCLOVG 七层模型
 
-核心论点：**Agent = Model + Harness**。通过外部系统设计（工具编排、状态管理、沙箱隔离、验证层）让 AI Agent 在生产环境中稳定可控，不依赖模型权重优化。
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-162%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)]()
+
+**核心论点：Agent = Model + Harness。** 通过外部系统设计（工具编排、状态管理、沙箱隔离、验证层）让 AI Agent 在生产环境中稳定可控，不依赖模型权重优化。
+
+---
+
+## 目录
+
+- [核心特性](#核心特性)
+- [快速开始](#快速开始)
+- [架构](#架构)
+- [CLI 命令](#cli-命令)
+- [配置](#配置)
+- [项目结构](#项目结构)
+- [测试](#测试)
+- [路线图](#路线图)
+- [技术栈](#技术栈)
+- [许可证](#许可证)
+
+---
+
+## 核心特性
+
+- **Observe-Think-Act 循环** — 完整的 Agent 执行闭环，含 retry/requery/compact/abort 四种错误恢复策略
+- **12 核心工具** — bash、文件读写编辑、glob/grep、web 搜索/抓取、skill、ask_user、task_manage、tool_search，支持并行执行
+- **可插拔 Context Engine** — 渐进式上下文压缩（清理 → 折叠 → 摘要归档）+ Prompt Caching + Skill 按需注入
+- **分层记忆** — Short / Session / Long / Meta 四层记忆 + 自动提取 + FTS5 全文搜索
+- **沙箱隔离** — Local + Docker 双后端 + FsBridge 文件操作抽象 + 敏感路径跨平台保护
+- **子 Agent** — SQLite 注册表 + 孤儿检测/恢复/认领 + 工具委托策略
+- **Checkpoint** — 完整状态序列化 + Pause/Resume
+- **轨迹回放** — 每步持久化 + JSONL 导出 + DB/文件双模式回放
+- **多模型支持** — 通过 [litellm](https://github.com/BerriAI/litellm) 统一调用 100+ 平台
 
 ## 快速开始
 
+### 安装
+
 ```bash
-# 1. 安装
+git clone https://github.com/vvvcxjvvv/agent-conch.git
+cd agent-conch
 pip install -e ".[dev]"
+```
 
-# 2. 配置模型 (conch.yaml)
-#   model.name       → 模型名 (格式: provider/model)
-#   api_key_env      → API Key 环境变量名
+### 配置模型
 
-# 3. 设置 Key
-# Windows:  $env:DEEPSEEK_API_KEY = "sk-xxx"
-# macOS:    export DEEPSEEK_API_KEY="sk-xxx"
+编辑 `conch.yaml`，设置 `model.name` 和 `api_key_env`：
 
-# 4. 运行
+```yaml
+model:
+  provider: "litellm"
+  name: "deepseek/deepseek-chat"
+  api_key_env: "DEEPSEEK_API_KEY"
+```
+
+设置 API Key 环境变量：
+
+```bash
+# macOS / Linux
+export DEEPSEEK_API_KEY="sk-xxx"
+
+# Windows PowerShell
+$env:DEEPSEEK_API_KEY = "sk-xxx"
+```
+
+### 运行
+
+```bash
 conch run "读取 README.md 并总结"
 ```
 
 ## 架构
 
+Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
+
 ```
-E 层 — 执行环境    Local / Docker 沙箱 + FS Bridge + 敏感路径保护
-T 层 — 工具接口    12 核心工具 + ToolRegistry + 策略管控 + 并行执行
-C 层 — 上下文      可插拔 Context Engine + 渐进式压缩 + Skill/Memory
-L 层 — 生命周期    Observe-Think-Act 循环 + Layer 插件 + 多 Agent
-O 层 — 可观测     OpenTelemetry Trace + Trajectory 回放 + exit_status
-V 层 — 验证       内置 lint/type check/test + Reviewer 评审 + 回归用例
-G 层 — 治理       RBAC + 配额熔断 + PolicyEngine + 安全审计
-S 层 — 状态存储    SQLite 优先 + Checkpoint + FTS5 全文搜索
+ ┌───────────────────────────────────────────────────┐
+ │ G · 治理       RBAC · 配额熔断 · PolicyEngine     │
+ ├───────────────────────────────────────────────────┤
+ │ V · 验证       lint · type-check · test · Reviewer │
+ ├───────────────────────────────────────────────────┤
+ │ O · 可观测     Trajectory 回放                     │
+ ├───────────────────────────────────────────────────┤
+ │ L · 生命周期   O-T-A 循环 · Layer 插件 · Subagent  │
+ ├───────────────────────────────────────────────────┤
+ │ C · 上下文     ContextEngine · 压缩 · Skill · 记忆 │
+ ├───────────────────────────────────────────────────┤
+ │ T · 工具接口   12 工具 · Registry · Policy · 并行   │
+ ├───────────────────────────────────────────────────┤
+ │ E · 执行环境   Local/Docker 沙箱 · FsBridge · 保护 │
+ ├───────────────────────────────────────────────────┤
+ │ S · 状态存储   SQLite · Checkpoint · FTS5          │
+ └───────────────────────────────────────────────────┘
 ```
 
-完整设计文档：[agent-conch-design.md](agent-conch-design.md)
+**各层实现进度：**
+
+| 层级 | 名称 | 当前能力 |
+|------|------|----------|
+| E | 执行环境与沙箱 | Local 沙箱 + FsBridge + 敏感路径保护 |
+| T | 工具接口层 | 12 核心工具 + ToolRegistry + ToolPolicy + ToolSearch + 并行执行 |
+| C | 上下文与记忆 | ContextEngine + 渐进式压缩 + Prompt Caching + Skill + 分层记忆 |
+| L | 生命周期与编排 | Agent Loop + Layer 插件 + ErrorClassifier + Subagent + Checkpoint |
+| O | 可观测性 | Trajectory 持久化 + 回放 |
+| V | 验证与评估 | — |
+| G | 治理与安全 | 敏感路径硬编码 |
+| S | 状态存储 | SQLite SessionDB + Checkpoint + FTS5 元记忆 |
 
 ## CLI 命令
 
-| 命令 | 说明 |
-|------|------|
-| `conch run "<任务>"` | 运行 Agent |
-| `conch run "<任务>" --model gpt-4o` | 运行时指定模型 |
-| `conch tools` | 列出已注册工具 |
-| `conch health` | 工具健康状态 |
-| `conch replay <session_id>` | 回放执行轨迹 |
-| `conch config` | 查看当前配置 |
+```bash
+conch run "<任务>"                    # 运行 Agent
+conch run "<任务>" --model gpt-4o    # 运行时指定模型
+conch run "<任务>" -v                # 详细输出
+conch tools                          # 列出已注册工具
+conch health                         # 工具健康状态
+conch replay <session_id>            # 回放执行轨迹
+conch replay ~/.agent-conch/trajectories/<id>.jsonl  # 从文件回放
+conch config                         # 查看当前配置
+```
 
-## 模型配置
+## 配置
 
-通过 [litellm](https://github.com/BerriAI/litellm) 统一调用，支持 100+ 平台。修改 `conch.yaml` 切换模型：
+所有配置通过 `conch.yaml` 驱动，关键配置项：
+
+```yaml
+# LLM 模型
+model:
+  provider: "litellm"
+  name: "deepseek/deepseek-chat"
+  api_key_env: "DEEPSEEK_API_KEY"
+  temperature: 0.0
+  max_tokens: 4096
+  timeout: 120
+
+# Agent Loop
+agent_loop:
+  max_turns: 50
+  max_time: 600
+  auto_compact: true
+
+# 工具
+tools:
+  core_enabled: true
+  tool_search_threshold: 0.10
+  parallel_execution: true
+
+# 沙箱
+sandbox:
+  mode: "non-main"           # non-main | always | never
+  default_backend: "local"   # local | docker
+
+# 状态存储
+state:
+  storage_dir: "~/.agent-conch"
+  db_name: "state.db"
+
+# Layer
+layers:
+  enabled:
+    - "execution_limits"
+```
+
+**支持的模型平台：**
 
 | 平台 | model.name | api_key_env |
 |------|-----------|-------------|
@@ -60,3 +177,103 @@ S 层 — 状态存储    SQLite 优先 + Checkpoint + FTS5 全文搜索
 | 本地 Ollama | `openai/qwen2.5-coder` | `OPENAI_API_KEY` |
 
 本地模型需额外配置 `api_base` 字段。运行时也可临时切换：`conch run "..." --model deepseek/deepseek-reasoner`。
+
+## 项目结构
+
+```
+agent-conch/
+├── src/agent_conch/
+│   ├── cli.py                 # CLI 入口 (click + rich)
+│   ├── config.py              # ConchConfig YAML 加载
+│   ├── engine/
+│   │   ├── agent_loop.py      # Observe-Think-Act 循环
+│   │   ├── conch_engine.py    # 引擎入口，组装各层组件
+│   │   ├── error_classifier.py # 25 种错误分类 + 恢复策略
+│   │   ├── layers/            # Layer 插件框架
+│   │   └── runtime/           # AgentRuntime ABC + BuiltinRuntime
+│   ├── tools/
+│   │   ├── base.py            # BaseTool ABC
+│   │   ├── registry.py        # ToolRegistry + check_fn 缓存
+│   │   ├── tool_policy.py     # Allow/Deny + Sandbox 策略
+│   │   ├── tool_search.py     # 渐进式工具发现
+│   │   └── core/              # 12 核心工具实现
+│   ├── context/
+│   │   ├── engine.py          # ContextEngine ABC + LegacyEngine
+│   │   ├── compact/pipeline.py # 三步压缩管线
+│   │   ├── prompt_caching.py  # Prompt Caching 策略
+│   │   ├── skills/registry.py # Skill 加载 + 选择性注入
+│   │   └── memory/manager.py  # 四层记忆管理
+│   ├── sandbox/
+│   │   ├── local.py           # LocalBackend + LocalFsBridge
+│   │   ├── docker.py          # DockerBackend + DockerFsBridge
+│   │   ├── fs_bridge.py       # FsBridge ABC
+│   │   └── path_validator.py  # 路径安全校验
+│   ├── security/
+│   │   └── sensitive_paths.py # 敏感路径跨平台保护
+│   ├── state/
+│   │   ├── session_db.py      # SQLite SessionDB
+│   │   ├── checkpoint.py      # Pause/Resume 序列化
+│   │   └── trajectory.py      # 轨迹存储 + JSONL 导出
+│   ├── multiagent/
+│   │   └── subagent.py        # 子 Agent 注册表 + 孤儿恢复
+│   └── prompts/
+│       ├── system_prompt.py   # System Prompt + 环境注入
+│       └── agents_md.py       # AGENTS.md 发现
+├── tests/                     # 162 个测试
+├── docs/                      # 设计文档 + 阶段总结
+├── conch.yaml                 # 默认配置
+└── pyproject.toml
+```
+
+## 测试
+
+```bash
+# 运行全部测试
+pytest tests/
+
+# 带覆盖率
+pytest tests/ --cov=agent_conch --cov-report=term-missing
+
+# 仅运行某一层
+pytest tests/test_sandbox.py    # E 层
+pytest tests/test_context.py    # C 层
+pytest tests/test_engine.py     # L 层
+```
+
+当前状态：**162 个测试全部通过**，覆盖 E/T/C/L/S 五层 + 集成测试。
+
+| 测试文件 | 覆盖层 | 测试数 |
+|----------|--------|--------|
+| `test_sandbox.py` | E 层 — 沙箱 | 20 |
+| `test_tools.py` | T 层 — 核心工具 | 17 |
+| `test_tool_system.py` | T 层 — 工具系统 | 20 |
+| `test_context.py` | C 层 — 上下文与记忆 | 32 |
+| `test_engine.py` | L 层 — 引擎 | 20 |
+| `test_state.py` | S 层 — 状态存储 | 16 |
+| `test_p2.py` | P2 综合 | 32 |
+| `test_integration.py` | 集成 | 5 |
+
+## 路线图
+
+| 阶段 | 目标 | 状态 |
+|------|------|------|
+| **P1** Workflow Agent | 最小可运行骨架：循环 + 工具 + 状态 + Local 沙箱 | ✅ 完成 |
+| **P2** Stateful Harness | 上下文压缩 + 记忆 + Skill + Docker + Subagent + Checkpoint | ✅ 完成 |
+| **P3** Verifiable & Observable | 验证层 + OTel 可观测 + MCP 客户端 + auto-compact 自动触发 | 🔜 计划中 |
+| **P4** Governed Platform | RBAC + PolicyEngine + Coordinator 多 Agent + Skill Curator | 📋 规划中 |
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 语言 | Python 3.10+ |
+| LLM 路由 | [litellm](https://github.com/BerriAI/litellm) — 支持 100+ 平台 |
+| CLI | [click](https://click.palletsprojects.com/) + [rich](https://rich.readthedocs.io/) |
+| 数据校验 | [Pydantic](https://docs.pydantic.dev/) v2 |
+| 状态存储 | SQLite（stdlib）+ FTS5 全文搜索 |
+| 测试 | pytest + pytest-asyncio + pytest-cov |
+| Lint | ruff + mypy (strict) |
+
+## 许可证
+
+[MIT](LICENSE)
