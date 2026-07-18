@@ -37,6 +37,7 @@ src/agent_conch/hooks/__init__.py
 src/agent_conch/multiagent/__init__.py
 src/agent_conch/multiagent/subagent.py
 src/agent_conch/observability/__init__.py
+src/agent_conch/observability/decision_trace.py
 src/agent_conch/observability/events.py
 src/agent_conch/observability/exit_status.py
 src/agent_conch/observability/insights.py
