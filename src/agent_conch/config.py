@@ -87,6 +87,30 @@ class LayersConfig:
 
 
 @dataclass
+class QuotaConfig:
+    """单次运行 LLM Token 配额。"""
+
+    max_tokens: int = 200_000
+
+
+@dataclass
+class VerificationConfig:
+    """写操作后的自动质量门禁。"""
+
+    commands: list[str] = field(default_factory=list)
+    timeout: int = 120
+    review_on_submit: bool = True
+
+
+@dataclass
+class ApiConfig:
+    """P3 HTTP API 与 Web Console 服务配置。"""
+
+    host: str = "127.0.0.1"
+    port: int = 8765
+
+
+@dataclass
 class PromptConfig:
     """Prompt 配置."""
 
@@ -112,6 +136,9 @@ class ConchConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     state: StateConfig = field(default_factory=StateConfig)
     layers: LayersConfig = field(default_factory=LayersConfig)
+    quota: QuotaConfig = field(default_factory=QuotaConfig)
+    verification: VerificationConfig = field(default_factory=VerificationConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
@@ -125,6 +152,9 @@ class ConchConfig:
             sandbox=SandboxConfig(**data.get("sandbox", {})),
             state=StateConfig(**data.get("state", {})),
             layers=LayersConfig(**data.get("layers", {})),
+            quota=QuotaConfig(**data.get("quota", {})),
+            verification=VerificationConfig(**data.get("verification", {})),
+            api=ApiConfig(**data.get("api", {})),
             prompt=PromptConfig(**data.get("prompt", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )

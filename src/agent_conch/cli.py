@@ -288,6 +288,34 @@ def health(config_path: str | None) -> None:
 
 @main.command()
 @click.option("--config", "-c", "config_path", default=None, help="Path to conch.yaml")
+@click.option("--cwd", default=None, help="Working directory")
+@click.option("--host", default=None, help="Listen host")
+@click.option("--port", default=None, type=int, help="Listen port")
+def serve(
+    config_path: str | None,
+    cwd: str | None,
+    host: str | None,
+    port: int | None,
+) -> None:
+    """Serve the P3 HTTP API and SSE endpoints."""
+    import uvicorn
+
+    from agent_conch.engine.conch_engine import ConchEngine
+
+    cfg = ConchConfig.load(config_path)
+    engine = ConchEngine(config=cfg, cwd=cwd)
+    try:
+        uvicorn.run(
+            engine.create_api_app(),
+            host=host or cfg.api.host,
+            port=port or cfg.api.port,
+        )
+    finally:
+        engine.close()
+
+
+@main.command()
+@click.option("--config", "-c", "config_path", default=None, help="Path to conch.yaml")
 def config(config_path: str | None) -> None:
     """Show current configuration."""
     cfg = ConchConfig.load(config_path)

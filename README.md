@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-166%20passed%20%2F%201%20skipped-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-181%20passed%20%2F%201%20skipped-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)]()
 
 **核心论点：Agent = Model + Harness。** 通过外部系统设计（工具编排、状态管理、沙箱隔离、验证层）让 AI Agent 在生产环境中稳定可控，不依赖模型权重优化。
@@ -36,6 +36,10 @@
 - **子 Agent** — SQLite 注册表 + 孤儿检测/恢复/认领 + 工具委托策略
 - **Checkpoint** — 完整状态序列化 + Pause/Resume
 - **轨迹回放** — 每步持久化 + JSONL 导出 + DB/文件双模式回放
+- **确定性验证** — 写工具后自动 lint/type-check/test + 独立验证报告 + 提交前自审
+- **完整可观测** — OpenTelemetry span + SQLite TraceStore + 决策轨迹 + exit status + Insights
+- **治理入口** — LLM 配额、暂停恢复、安全审计、危险配置检测
+- **Web Console** — 深海青蓝三栏工作台，集中配置任务、观察决策轨迹与 Trace/验证报告，并支持 Markdown 回答和审批队列
 - **多模型支持** — 通过 [litellm](https://github.com/BerriAI/litellm) 统一调用 100+ 平台
 
 ## 快速开始
@@ -75,6 +79,56 @@ $env:DEEPSEEK_API_KEY = "sk-xxx"
 conch run "读取 README.md 并总结"
 ```
 
+### 前后端交互
+
+```bash
+# 终端一：启动后端 API/SSE 服务
+export DEEPSEEK_API_KEY="<your-api-key>"
+conch serve
+
+# 终端二：启动 React Web Console
+cd apps/web
+npm install
+npm run dev
+# 浏览器访问 http://127.0.0.1:5173
+# 自定义后端地址：VITE_API_BASE=http://127.0.0.1:8765 npm run dev
+
+# 后端健康检查
+curl http://127.0.0.1:8765/health
+
+# 发起 Agent 任务
+curl -X POST http://127.0.0.1:8765/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"p3-e2e-001","input":"读取 README.md 并总结当前 P3 能力"}'
+
+# 监听 SSE 实时事件；使用相同 Session ID 发起任务后，
+# 应收到 run_started、llm_call、tool_call、run_finished
+curl -N http://127.0.0.1:8765/events/p3-e2e-001
+
+# 查询轨迹、OTel Trace 和验证报告
+curl http://127.0.0.1:8765/runs/p3-e2e-001/trajectory
+curl http://127.0.0.1:8765/runs/p3-e2e-001/traces
+curl http://127.0.0.1:8765/runs/p3-e2e-001/verification
+
+# 创建待审批记录；刷新 Web Console 后可批准或拒绝
+curl -X POST http://127.0.0.1:8765/approvals \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"p3-e2e-001","operation":"write memory","reason":"验证审批流程"}'
+curl http://127.0.0.1:8765/approvals
+
+# 查询 Insights、安全审计和历史会话
+curl http://127.0.0.1:8765/insights
+curl http://127.0.0.1:8765/security/audit
+curl 'http://127.0.0.1:8765/sessions/search?query=P3&limit=10'
+
+# Web Console 验收：
+# timeline 显示 SSE 事件；决策轨迹展示观察、决策、执行、验证和结论摘要；
+# trajectory/traces 展示底层执行证据；
+# 最终回答可手动切换 Markdown 预览和源文本；
+# 成功执行 write_file/edit_file 后 verification 生成服务级报告；
+# 审批可从 pending 更新为 approved/rejected；默认安全审计返回 []。
+```
+
 ## 架构
 
 Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
@@ -85,7 +139,7 @@ Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
  ├───────────────────────────────────────────────────┤
  │ V · 验证       lint · type-check · test · Reviewer │
  ├───────────────────────────────────────────────────┤
- │ O · 可观测     Trajectory 回放                     │
+ │ O · 可观测     OTel · Trace · Trajectory · Insights │
  ├───────────────────────────────────────────────────┤
  │ L · 生命周期   O-T-A 循环 · Layer 插件 · Subagent  │
  ├───────────────────────────────────────────────────┤
@@ -107,10 +161,10 @@ Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
 | T | 工具接口层 | 12 核心工具 + ToolRegistry + ToolPolicy + ToolSearch + 并行执行 |
 | C | 上下文与记忆 | ContextEngine + 渐进式压缩 + Prompt Caching + Skill + 分层记忆 |
 | L | 生命周期与编排 | Agent Loop + Layer 插件 + ErrorClassifier + Subagent + Checkpoint |
-| O | 可观测性 | Trajectory 持久化 + 回放 |
-| V | 验证与评估 | — |
-| G | 治理与安全 | 敏感路径硬编码 |
-| S | 状态存储 | SQLite SessionDB + Checkpoint + FTS5 元记忆 |
+| O | 可观测性 | OTel span + TraceStore + Decision Trace + Trajectory 回放 + exit_status + Insights |
+| V | 验证与评估 | VerificationLayer + Reviewer + review_on_submit + 验证报告分离 |
+| G | 治理与安全 | LLM 配额熔断 + Security Audit + Dangerous Config Detection |
+| S | 状态存储 | SQLite SessionDB + Checkpoint + Trace/Verification/Approval + FTS5 元记忆 |
 
 ## CLI 命令
 
@@ -123,6 +177,7 @@ conch health                         # 工具健康状态
 conch replay <session_id>            # 回放执行轨迹
 conch replay ~/.agent-conch/trajectories/<id>.jsonl  # 从文件回放
 conch config                         # 查看当前配置
+conch serve                          # 启动 HTTP API / SSE（默认 127.0.0.1:8765）
 ```
 
 ## 配置
@@ -165,6 +220,11 @@ state:
 layers:
   enabled:
     - "execution_limits"
+    - "observability"
+    - "llm_quota"
+    - "verification"
+    - "suspend"
+    - "pause_state_persist"
 ```
 
 **支持的模型平台：**
@@ -219,7 +279,8 @@ agent-conch/
 │   └── prompts/
 │       ├── system_prompt.py   # System Prompt + 环境注入
 │       └── agents_md.py       # AGENTS.md 发现
-├── tests/                     # 162 个测试
+├── apps/web/                  # P3 React Web Console
+├── tests/                     # 181 个通过测试 + 1 Docker 条件跳过
 ├── docs/                      # 设计文档 + 阶段总结
 ├── conch.yaml                 # 默认配置
 └── pyproject.toml
@@ -240,7 +301,7 @@ pytest tests/test_context.py    # C 层
 pytest tests/test_engine.py     # L 层
 ```
 
-当前状态：**166 个测试通过，1 个 Docker 集成测试因本机无可用 Docker daemon 条件跳过**；覆盖 E/T/C/L/S 五层与集成链路。
+当前状态：**181 个测试通过，1 个 Docker 集成测试因本机无可用 Docker daemon 条件跳过**；P3 新增 15 个 O/V/G/API/SSE/检索专项用例，覆盖 ETCLOVG + S 与集成链路。
 
 | 测试文件 | 覆盖层 | 测试数 |
 |----------|--------|--------|
@@ -252,6 +313,7 @@ pytest tests/test_engine.py     # L 层
 | `test_state.py` | S 层 — 状态存储 | 15 |
 | `test_p2.py` | P2 综合 | 34 |
 | `test_integration.py` | 集成 | 5 |
+| `test_p3.py` | P3 O/V/G/API/SSE/检索综合 | 15 |
 
 ## 路线图
 
@@ -259,7 +321,7 @@ pytest tests/test_engine.py     # L 层
 |------|------|------|
 | **P1** Workflow Agent | 最小可运行骨架：循环 + 工具 + 状态 + Local 沙箱 | ✅ 完成 |
 | **P2** Stateful Harness | 上下文压缩 + 记忆 + Skill + Docker + Subagent + Checkpoint | ✅ 完成 |
-| **P3** Verifiable & Observable | 验证层 + OTel 可观测 + MCP 客户端 + auto-compact 自动触发 | 🔜 计划中 |
+| **P3** Auditable Harness | 完整 trace + 失败归因 + 确定性验证 + 验证报告 + Web Console | ✅ 完成 |
 | **P4** Governed Platform | RBAC + PolicyEngine + Coordinator 多 Agent + Skill Curator | 📋 规划中 |
 
 ## 技术栈
@@ -273,6 +335,9 @@ pytest tests/test_engine.py     # L 层
 | 状态存储 | SQLite（stdlib）+ FTS5 全文搜索 |
 | 测试 | pytest + pytest-asyncio + pytest-cov |
 | Lint | ruff + mypy (strict) |
+| API / 实时事件 | FastAPI + SSE + uvicorn |
+| 可观测 | OpenTelemetry SDK + SQLite TraceStore |
+| Web Console | React + TypeScript + Vite |
 
 ## 许可证
 

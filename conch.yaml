@@ -53,11 +53,27 @@ state:
 layers:
   enabled:
     - "execution_limits"        # P1
-    # - "observability"          # P3: OTel
-    # - "llm_quota"              # P3: 配额熔断
-    # - "verification"           # P3: 验证层
-    # - "suspend"                # P3: 暂停/恢复
+    - "observability"           # P3: OTel + SQLite spans
+    - "llm_quota"               # P3: 配额熔断
+    - "verification"            # P3: 写操作后自动验证
+    - "suspend"                 # P3: 暂停/恢复
+    - "pause_state_persist"     # P3: 暂停状态持久化
     # - "policy"                 # P4: 策略引擎
+
+quota:
+  max_tokens: 200000
+
+verification:
+  commands:
+    - "ruff check src tests"
+    - "mypy src"
+    - "pytest -q"
+  timeout: 180
+  review_on_submit: true
+
+api:
+  host: "127.0.0.1"
+  port: 8765
 
 # === Prompt 配置 ===
 prompt:

@@ -304,6 +304,7 @@ class MetaMemory:
         turn_count: int = 0,
     ) -> None:
         """索引会话摘要."""
+        self.db.conn.execute("DELETE FROM session_search WHERE session_id = ?", (session_id,))
         self.db.conn.execute(
             "INSERT INTO session_search (session_id, summary, turn_count, created_at) VALUES (?, ?, ?, ?)",
             (session_id, summary, turn_count, time.time()),

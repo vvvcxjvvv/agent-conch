@@ -16,19 +16,29 @@ from __future__ import annotations
 
 import os
 import uuid
+from dataclasses import asdict
 from typing import Any
 
 from agent_conch.config import ConchConfig
 from agent_conch.engine.agent_loop import AgentLoop
-from agent_conch.engine.layers.base import LayerManager
+from agent_conch.engine.layers.base import Event, LayerManager
 from agent_conch.engine.layers.execution_limits import ExecutionLimitsLayer
+from agent_conch.engine.layers.llm_quota import LLMQuotaLayer
+from agent_conch.engine.layers.suspend import PauseStatePersistLayer, SuspendLayer
 from agent_conch.engine.runtime.builtin import BuiltinConchRuntime
 from agent_conch.engine.runtime.types import AgentResult, RuntimeConfig
+from agent_conch.observability.decision_trace import DecisionTraceStore
+from agent_conch.observability.events import EventBus
+from agent_conch.observability.exit_status import classify_exit_status
+from agent_conch.observability.insights import InsightsEngine
+from agent_conch.observability.otel import ObservabilityLayer, OTelTracer
+from agent_conch.observability.trace_store import TraceStore
 from agent_conch.prompts.agents_md import discover_agents_md
 from agent_conch.prompts.system_prompt import build_system_prompt
 from agent_conch.sandbox.local import LocalBackend
 from agent_conch.sandbox.path_validator import PathValidator
 from agent_conch.sandbox.registry import SandboxRegistry
+from agent_conch.security.audit import SecurityAudit
 from agent_conch.state.session_db import SessionDB
 from agent_conch.state.trajectory import TrajectoryStore
 from agent_conch.tools.core.ask_user import AskUserTool
@@ -37,6 +47,7 @@ from agent_conch.tools.core.edit_file import EditFileTool
 from agent_conch.tools.core.glob import GlobTool
 from agent_conch.tools.core.grep import GrepTool
 from agent_conch.tools.core.read_file import ReadFileTool
+from agent_conch.tools.core.session_search import SessionSearchTool
 from agent_conch.tools.core.skill import SkillTool
 from agent_conch.tools.core.task_manage import TaskManageTool
 from agent_conch.tools.core.tool_search import ToolSearchTool
@@ -47,6 +58,10 @@ from agent_conch.tools.footprint import FootprintLadder
 from agent_conch.tools.registry import ToolRegistry
 from agent_conch.tools.tool_policy import ToolPolicy
 from agent_conch.tools.tool_search import ToolSearch
+from agent_conch.verification.layer import VerificationLayer
+from agent_conch.verification.report import VerificationStore
+from agent_conch.verification.reviewer import Reviewer
+from agent_conch.verification.self_review import SelfReview
 
 
 class ConchEngine:
@@ -67,6 +82,18 @@ class ConchEngine:
         # === S 层: 状态存储 ===
         self.session_db = SessionDB(self.config.state.db_path)
         self.trajectory_store = TrajectoryStore(self.session_db, self.config.state.trajectory_path)
+        from agent_conch.state.checkpoint import CheckpointManager
+
+        self.checkpoint_manager = CheckpointManager(self.session_db)
+
+        # === O/V/G 层: P3 可观测、验证与治理 ===
+        self.trace_store = TraceStore(self.session_db)
+        self.decision_trace_store = DecisionTraceStore(self.session_db)
+        self.otel_tracer = OTelTracer(self.trace_store)
+        self.verification_store = VerificationStore(self.session_db)
+        self.insights = InsightsEngine(self.session_db)
+        self.event_bus = EventBus()
+        self.security_audit = SecurityAudit()
 
         # === E 层: 沙箱 ===
         path_validator = PathValidator(
@@ -94,10 +121,6 @@ class ConchEngine:
         self.footprint_ladder = FootprintLadder()
 
         self._register_core_tools()
-
-        # === L 层: Layer ===
-        self.layer_manager = LayerManager()
-        self._setup_layers()
 
         # === Prompt ===
         agents_md = discover_agents_md(self.cwd) if self.config.prompt.discover_agents_md else ""
@@ -151,6 +174,7 @@ class ConchEngine:
             db=self.session_db,
             memory_dir=str(self.config.state.storage_path / "memory"),
         )
+        self.tool_registry.register(SessionSearchTool(self.memory_manager.meta_memory))
         self.context_engine = LegacyEngine(
             db=self.session_db,
             system_prompt=self.system_prompt,
@@ -164,15 +188,16 @@ class ConchEngine:
             ),
         )
 
-        # === S 层: Checkpoint (P2) ===
-        from agent_conch.state.checkpoint import CheckpointManager
-
-        self.checkpoint_manager = CheckpointManager(self.session_db)
-
         # === L 层: Subagent (P2) ===
         from agent_conch.multiagent.subagent import SubagentManager
 
         self.subagent_manager = SubagentManager(self.session_db)
+
+        # === L/O/V 层: P3 Layer 与评审闭环 ===
+        self.layer_manager = LayerManager()
+        self._setup_layers()
+        self.reviewer = Reviewer(self._call_auxiliary_model)
+        self.self_review = SelfReview()
 
         # === Runtime ===
         runtime_config = RuntimeConfig(
@@ -195,6 +220,8 @@ class ConchEngine:
             sandbox_mode=self.config.sandbox.mode,
             context_engine=self.context_engine,
             prompt_caching=self.prompt_caching,
+            event_sink=self.event_bus.publish,
+            decision_trace_store=self.decision_trace_store,
         )
 
         self.runtime = BuiltinConchRuntime(runtime_config, self.agent_loop)
@@ -234,6 +261,27 @@ class ConchEngine:
                         max_time=self.config.agent_loop.max_time,
                     )
                 )
+            elif layer_name == "observability":
+                self.layer_manager.add(ObservabilityLayer(self.otel_tracer))
+            elif layer_name == "llm_quota":
+                self.layer_manager.add(LLMQuotaLayer(self.config.quota.max_tokens))
+            elif layer_name == "verification":
+                self.layer_manager.add(
+                    VerificationLayer(
+                        self.verification_store,
+                        self._run_verification,
+                        self.config.verification.commands,
+                        self.cwd,
+                        self.config.verification.timeout,
+                    )
+                )
+            elif layer_name == "suspend":
+                self.layer_manager.add(SuspendLayer())
+            elif layer_name == "pause_state_persist":
+                self.layer_manager.add(PauseStatePersistLayer(self.checkpoint_manager))
+
+    async def _run_verification(self, command: str, cwd: str | None, timeout: int) -> Any:
+        return await self.local_backend.execute(command, cwd=cwd, timeout=timeout)
 
     def _collect_env_info(self) -> str:
         """收集环境信息 (供 system prompt)."""
@@ -272,12 +320,46 @@ class ConchEngine:
         if session_id is None:
             session_id = str(uuid.uuid4())[:12]
 
-        return await self.runtime.run(session_id, user_input)
+        result = await self.runtime.run(session_id, user_input)
+        if self.config.verification.review_on_submit and result.status == "completed":
+            report = self.verification_store.latest(session_id)
+            review = await self.self_review.run(
+                user_input,
+                result.final_response,
+                report.passed if report is not None else True,
+            )
+            result.trajectory_summary["self_review"] = asdict(review)
+            if not review.passed:
+                result.status = "error"
+                result.error = "Self review failed: " + "; ".join(review.issues)
+        result.trajectory_summary["exit_status"] = classify_exit_status(
+            result.status, result.error or ""
+        ).value
+        self.session_db.update_session_status(session_id, result.status)
+        return result
 
     async def replay(self, session_id_or_path: str) -> str:
         """回放轨迹."""
         steps = self.trajectory_store.replay(session_id_or_path)
         return self.trajectory_store.format_replay(steps)
+
+    async def pause(self, session_id: str, turn_index: int = 0) -> None:
+        await self.layer_manager.on_event(
+            Event(type="pause", data={"session_id": session_id, "turn_index": turn_index})
+        )
+        await self.event_bus.publish(session_id, {"type": "paused", "turn_index": turn_index})
+
+    async def resume(self, session_id: str) -> None:
+        await self.layer_manager.on_event(Event(type="resume", data={"session_id": session_id}))
+        await self.event_bus.publish(session_id, {"type": "resumed"})
+
+    def run_security_audit(self) -> list[Any]:
+        return self.security_audit.scan(asdict(self.config))
+
+    def create_api_app(self) -> Any:
+        from agent_conch.api.server import create_app
+
+        return create_app(self)
 
     def get_tool_health(self) -> dict[str, Any]:
         """获取工具健康状态."""

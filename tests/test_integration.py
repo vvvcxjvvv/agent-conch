@@ -138,7 +138,12 @@ class TestIntegration:
         trajectory = engine.session_db.get_trajectory("integration-test-001")
         assert len(trajectory) >= 4
 
-        # 5. 最终回答
+        # 5. 决策轨迹记录可审计摘要，不依赖模型原始思维链
+        decisions = engine.decision_trace_store.list_for_session("integration-test-001")
+        assert {step.phase for step in decisions} >= {"observe", "decide", "act", "conclude"}
+        assert any("read_file" in step.summary for step in decisions)
+
+        # 6. 最终回答
         assert (
             "hello conch" in result.final_response or "tests pass" in result.final_response.lower()
         )

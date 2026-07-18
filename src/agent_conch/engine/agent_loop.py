@@ -17,15 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from agent_conch.engine.error_classifier import (
     ErrorClassifier,
     RecoveryStrategy,
 )
-from agent_conch.engine.layers.base import GraphContext, LayerManager, NodeContext
+from agent_conch.engine.layers.base import Event, GraphContext, LayerManager, NodeContext
 from agent_conch.engine.runtime.types import AgentResult, RuntimeConfig
+from agent_conch.observability.decision_trace import DecisionTraceStep, DecisionTraceStore
 from agent_conch.state.session_db import SessionDB
 from agent_conch.state.trajectory import TrajectoryStep, TrajectoryStore
 from agent_conch.tools.base import ToolCall, ToolExecutionRecord, ToolResult
@@ -64,6 +66,8 @@ class AgentLoop:
         sandbox_mode: str = "non-main",
         context_engine: Any = None,
         prompt_caching: Any = None,
+        event_sink: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        decision_trace_store: DecisionTraceStore | None = None,
     ):
         self.config = config
         self.db = session_db
@@ -76,6 +80,35 @@ class AgentLoop:
         # P2: Context Engine + Prompt Caching
         self.context_engine = context_engine
         self.prompt_caching = prompt_caching
+        self.event_sink = event_sink
+        self.decision_trace_store = decision_trace_store
+
+    async def _emit(self, session_id: str, event: dict[str, Any]) -> None:
+        if self.event_sink is not None:
+            await self.event_sink(session_id, event)
+
+    async def _record_decision(
+        self,
+        session_id: str,
+        turn_index: int,
+        phase: str,
+        title: str,
+        summary: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        """保存并发布可审计决策摘要，不记录模型原始思维链。"""
+        if self.decision_trace_store is None:
+            return
+        step = DecisionTraceStep.create(
+            session_id,
+            turn_index,
+            phase,
+            title,
+            summary,
+            evidence,
+        )
+        self.decision_trace_store.save(step)
+        await self._emit(session_id, {"type": "decision_trace", "decision": asdict(step)})
 
     async def run(self, session_id: str, user_input: str) -> AgentResult:
         """执行 Agent run.
@@ -117,8 +150,23 @@ class AgentLoop:
 
         # Layer: on_graph_start
         await self.layers.on_graph_start(graph_ctx)
+        await self._emit(session_id, {"type": "run_started", "input": user_input})
+        await self._record_decision(
+            session_id,
+            0,
+            "observe",
+            "初始化任务",
+            "已接收任务目标，并加载运行配置、会话状态与治理约束。",
+            {"max_turns": self.config.max_turns, "max_time": self.config.max_time},
+        )
 
         if graph_ctx.should_abort:
+            await self.layers.on_graph_end(graph_ctx)
+            self.db.update_session_status(session_id, "aborted")
+            await self._emit(
+                session_id,
+                {"type": "run_finished", "status": "aborted", "error": graph_ctx.abort_reason},
+            )
             return AgentResult(
                 session_id=session_id,
                 status="aborted",
@@ -142,6 +190,7 @@ class AgentLoop:
                 )
 
             turn_count += 1
+            graph_ctx.turn_count = turn_count
             turn_id = self.db.start_turn(session_id, turn_count)
             turn_start = time.time()
 
@@ -151,6 +200,14 @@ class AgentLoop:
 
             try:
                 # === Think: 调用 LLM ===
+                await self._record_decision(
+                    session_id,
+                    turn_count,
+                    "observe",
+                    "组装上下文",
+                    "读取当前会话历史、记忆与系统约束，准备本轮决策。",
+                    {"turn_index": turn_count},
+                )
                 llm_response = await self.forward_with_handling(session_id)
 
                 if llm_response is None:
@@ -160,6 +217,80 @@ class AgentLoop:
                         session_id=session_id,
                         status="error",
                         error="LLM call failed after all retries",
+                        turn_count=turn_count,
+                        tool_calls_count=tool_calls_count,
+                        total_duration_ms=int((time.time() - run_start) * 1000),
+                    )
+
+                await self.layers.on_event(
+                    Event(
+                        type="llm_usage",
+                        data={
+                            "session_id": session_id,
+                            "usage": llm_response.usage,
+                            "graph_context": graph_ctx,
+                        },
+                    )
+                )
+                await self._emit(
+                    session_id,
+                    {"type": "llm_call", "turn_index": turn_count, "usage": llm_response.usage},
+                )
+                tool_names = [
+                    str(call.get("function", {}).get("name", "unknown"))
+                    for call in llm_response.tool_calls
+                ]
+                if tool_names:
+                    await self._record_decision(
+                        session_id,
+                        turn_count,
+                        "decide",
+                        "选择执行工具",
+                        f"为推进任务，本轮选择调用 {len(tool_names)} 个工具："
+                        + "、".join(tool_names),
+                        {
+                            "tools": tool_names,
+                            "finish_reason": llm_response.finish_reason,
+                            "token_usage": llm_response.usage,
+                        },
+                    )
+                else:
+                    await self._record_decision(
+                        session_id,
+                        turn_count,
+                        "conclude",
+                        "生成最终回答",
+                        "现有证据已足以结束工具循环，开始生成本轮结论。",
+                        {
+                            "finish_reason": llm_response.finish_reason,
+                            "response_length": len(llm_response.content),
+                            "token_usage": llm_response.usage,
+                        },
+                    )
+                if graph_ctx.should_abort:
+                    await self._record_decision(
+                        session_id,
+                        turn_count,
+                        "govern",
+                        "治理规则终止运行",
+                        graph_ctx.abort_reason,
+                        {"status": "aborted"},
+                    )
+                    self.db.finish_turn(turn_id, "aborted", graph_ctx.abort_reason)
+                    await self.layers.on_graph_end(graph_ctx)
+                    self.db.update_session_status(session_id, "aborted")
+                    await self._emit(
+                        session_id,
+                        {
+                            "type": "run_finished",
+                            "status": "aborted",
+                            "error": graph_ctx.abort_reason,
+                        },
+                    )
+                    return AgentResult(
+                        session_id=session_id,
+                        status="aborted",
+                        error=graph_ctx.abort_reason,
                         turn_count=turn_count,
                         tool_calls_count=tool_calls_count,
                         total_duration_ms=int((time.time() - run_start) * 1000),
@@ -233,8 +364,60 @@ class AgentLoop:
                 # Layer: on_node_run_end
                 await self.layers.on_node_run_end(node_ctx, results)
 
+                status_counts: dict[str, int] = {}
+                for record in results:
+                    status_counts[record.status] = status_counts.get(record.status, 0) + 1
+                await self._record_decision(
+                    session_id,
+                    turn_count,
+                    "act",
+                    "完成工具执行",
+                    f"已执行 {len(results)} 个工具；"
+                    + "，".join(f"{status} {count}" for status, count in status_counts.items()),
+                    {
+                        "tools": [record.tool_name for record in results],
+                        "statuses": status_counts,
+                        "duration_ms": sum(record.duration_ms for record in results),
+                    },
+                )
+
+                if "verification_report_id" in node_ctx.metadata:
+                    verification_passed = bool(node_ctx.metadata["verification_passed"])
+                    await self._record_decision(
+                        session_id,
+                        turn_count,
+                        "verify",
+                        "自动验证完成",
+                        "服务级质量门禁通过。"
+                        if verification_passed
+                        else "服务级质量门禁未通过，下一轮需要修复失败项。",
+                        {
+                            "report_id": node_ctx.metadata["verification_report_id"],
+                            "passed": verification_passed,
+                        },
+                    )
+                    await self._emit(
+                        session_id,
+                        {
+                            "type": "verification",
+                            "turn_index": turn_count,
+                            "report_id": node_ctx.metadata["verification_report_id"],
+                            "passed": node_ctx.metadata["verification_passed"],
+                        },
+                    )
+
                 # 保存工具结果消息
                 for record in results:
+                    await self._emit(
+                        session_id,
+                        {
+                            "type": "tool_call",
+                            "turn_index": turn_count,
+                            "tool_name": record.tool_name,
+                            "status": record.status,
+                            "duration_ms": record.duration_ms,
+                        },
+                    )
                     self.db.add_message(
                         session_id,
                         "tool",
@@ -289,10 +472,17 @@ class AgentLoop:
 
         # 更新 session 状态
         self.db.update_session_status(session_id, "completed")
+        if self.context_engine is not None and last_response:
+            memory_manager = getattr(self.context_engine, "memory_manager", None)
+            if memory_manager is not None:
+                memory_manager.meta_memory.index_session(session_id, last_response, turn_count)
+
+        status = "completed" if turn_count < self.config.max_turns else "max_turns"
+        await self._emit(session_id, {"type": "run_finished", "status": status})
 
         return AgentResult(
             session_id=session_id,
-            status="completed" if turn_count < self.config.max_turns else "max_turns",
+            status=status,
             final_response=last_response,
             turn_count=turn_count,
             tool_calls_count=tool_calls_count,
