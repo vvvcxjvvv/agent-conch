@@ -1,4 +1,5 @@
 """T 层核心工具: web_search — Web 搜索."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,8 +33,9 @@ class WebSearchTool(BaseTool):
     async def execute(self, **kwargs: Any) -> ToolResult:
         validated = WebSearchInput(**kwargs)
         try:
-            import httpx
             import re
+
+            import httpx
 
             # DuckDuckGo HTML 搜索 (无需 API key)
             url = "https://html.duckduckgo.com/html/"
@@ -63,9 +65,7 @@ class WebSearchTool(BaseTool):
             links = link_pattern.findall(html)
             snippets = snippet_pattern.findall(html)
 
-            for i, ((raw_url, title), snippet) in enumerate(
-                zip(links, snippets), 1
-            ):
+            for i, ((raw_url, title), snippet) in enumerate(zip(links, snippets, strict=False), 1):
                 if i > validated.max_results:
                     break
                 # 清理 HTML 标签

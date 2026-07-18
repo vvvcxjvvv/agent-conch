@@ -4,8 +4,8 @@
 - 基础 System Prompt: base + env + AGENTS.md 发现
 - P1: base 模式
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 BASE_SYSTEM_PROMPT = """You are Agent-Conch, a capable AI assistant powered by a structured agent harness.
 

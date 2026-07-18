@@ -1,11 +1,13 @@
 """E 层测试: PathValidator + FsBridge + LocalBackend."""
+
 from __future__ import annotations
 
-import os
+import shutil
 from pathlib import Path
 
 import pytest
 
+from agent_conch.sandbox.docker import DockerBackend, DockerConfig
 from agent_conch.sandbox.fs_bridge import LocalFsBridge
 from agent_conch.sandbox.local import LocalBackend
 from agent_conch.sandbox.path_validator import PathValidator
@@ -161,3 +163,40 @@ class TestLocalBackend:
         )
         assert result.exit_code == 0
         assert "passed" in result.stdout
+
+
+class TestDockerBackend:
+    async def test_execute_snapshot_restore_and_reset(self):
+        if shutil.which("docker") is None:
+            pytest.skip("Docker CLI is not installed")
+
+        backend = DockerBackend(DockerConfig(image="alpine:3.20"))
+        if not await backend.is_available():
+            pytest.skip("Docker daemon is not available")
+
+        session_id = "p2-docker-test"
+        snapshot = None
+        try:
+            result = await backend.execute(
+                "printf 'before' > state.txt && cat state.txt",
+                session_id=session_id,
+                timeout=60,
+            )
+            assert result.exit_code == 0
+            assert result.stdout == "before"
+
+            snapshot = await backend.snapshot(session_id)
+            assert snapshot is not None
+
+            await backend.execute("printf 'after' > state.txt", session_id=session_id)
+            assert await backend.restore_snapshot(session_id, snapshot)
+            restored = await backend.execute("cat state.txt", session_id=session_id)
+            assert restored.stdout == "before"
+
+            assert await backend.hard_reset(session_id)
+            reset = await backend.execute("test ! -e state.txt", session_id=session_id)
+            assert reset.exit_code == 0
+        finally:
+            await backend.cleanup(session_id)
+            if snapshot is not None:
+                await backend.remove_snapshot(snapshot)

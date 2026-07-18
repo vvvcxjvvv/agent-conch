@@ -1,7 +1,9 @@
 """T 层核心工具: task_manage — 后台任务管理."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -54,9 +56,9 @@ class TaskManageTool(BaseTool):
     is_core = True
     tags = ["task", "background", "async"]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._tasks: dict[str, BackgroundTask] = {}
-        self._async_tasks: dict[str, asyncio.Task] = {}
+        self._async_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         validated = TaskManageInput(**kwargs)
@@ -83,7 +85,7 @@ class TaskManageTool(BaseTool):
         self._tasks[task_id] = bg_task
 
         # 启动后台任务
-        async def _run():
+        async def _run() -> None:
             try:
                 proc = await asyncio.create_subprocess_shell(
                     command,
@@ -92,9 +94,7 @@ class TaskManageTool(BaseTool):
                 )
                 bg_task._proc = proc  # type: ignore[attr-defined]
                 try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=timeout
-                    )
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
                     bg_task.stdout = stdout.decode("utf-8", errors="replace")
                     bg_task.stderr = stderr.decode("utf-8", errors="replace")
                     bg_task.exit_code = proc.returncode
@@ -164,10 +164,8 @@ class TaskManageTool(BaseTool):
         async_task = self._async_tasks.get(task_id)
         if async_task and not async_task.done():
             async_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await async_task
-            except asyncio.CancelledError:
-                pass
 
         task.status = "cancelled"
         return ToolResult(

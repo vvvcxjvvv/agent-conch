@@ -21,6 +21,7 @@ frontmatter 格式:
       tags: [review, quality]
       related_skills: [lint, test]
 """
+
 from __future__ import annotations
 
 import os
@@ -264,15 +265,13 @@ class SkillInjector:
 
         # 1. inject_schema.when 条件匹配
         when_cond = fm.inject_schema.get("when", "")
-        if when_cond:
-            if self._evaluate_when(when_cond, task_type):
-                return True
+        if when_cond and self._evaluate_when(when_cond, task_type):
+            return True
 
         # 2. tags 匹配
         skill_tags = fm.metadata.get("tags", [])
-        if tags and skill_tags:
-            if any(t in skill_tags for t in tags):
-                return True
+        if tags and skill_tags and any(t in skill_tags for t in tags):
+            return True
 
         # 3. 关键词匹配
         if query:
@@ -326,9 +325,7 @@ class SkillInjector:
                     if content:
                         parts.append(f"### {field}\n{content}")
                 if parts:
-                    skill_sections.append(
-                        f"## Skill: {skill.name}\n" + "\n\n".join(parts)
-                    )
+                    skill_sections.append(f"## Skill: {skill.name}\n" + "\n\n".join(parts))
             else:
                 # 注入完整 body (截断到 2000 chars)
                 body = skill.body[:2000]
@@ -339,7 +336,9 @@ class SkillInjector:
         if not skill_sections:
             return system_prompt
 
-        injected = "\n\n--- Injected Skills ---\n" + "\n\n".join(skill_sections) + "\n--- End Skills ---"
+        injected = (
+            "\n\n--- Injected Skills ---\n" + "\n\n".join(skill_sections) + "\n--- End Skills ---"
+        )
 
         return system_prompt + injected
 

@@ -7,11 +7,12 @@
 
 P2: 完整实现 Pause/Resume 状态持久化.
 """
+
 from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_conch.state.session_db import SessionDB
@@ -25,7 +26,7 @@ class Checkpoint:
     session_id: str = ""
     turn_index: int = 0
     status: str = "checkpoint"  # checkpoint | paused | suspended
-    messages_snapshot: list[dict] = field(default_factory=list)
+    messages_snapshot: list[dict[str, Any]] = field(default_factory=list)
     agent_state: dict[str, Any] = field(default_factory=dict)
     context_state: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
@@ -152,9 +153,7 @@ class CheckpointManager:
             created_at=row["created_at"],
         )
 
-    async def list_checkpoints(
-        self, session_id: str
-    ) -> list[Checkpoint]:
+    async def list_checkpoints(self, session_id: str) -> list[Checkpoint]:
         """列出会话的所有检查点."""
         rows = self.db.conn.execute(
             "SELECT * FROM checkpoints WHERE session_id = ? ORDER BY created_at DESC",

@@ -11,6 +11,7 @@
 4. 创建 AgentLoop + BuiltinConchRuntime
 5. 提供 run() / replay() 接口
 """
+
 from __future__ import annotations
 
 import os
@@ -65,9 +66,7 @@ class ConchEngine:
 
         # === S 层: 状态存储 ===
         self.session_db = SessionDB(self.config.state.db_path)
-        self.trajectory_store = TrajectoryStore(
-            self.session_db, self.config.state.trajectory_path
-        )
+        self.trajectory_store = TrajectoryStore(self.session_db, self.config.state.trajectory_path)
 
         # === E 层: 沙箱 ===
         path_validator = PathValidator(
@@ -75,9 +74,7 @@ class ConchEngine:
             user_sensitive_paths=self.config.sandbox.sensitive_paths,
             cwd=self.cwd,
         )
-        self.local_backend = LocalBackend(
-            validator=path_validator, default_cwd=self.cwd
-        )
+        self.local_backend = LocalBackend(validator=path_validator, default_cwd=self.cwd)
         self.sandbox_registry = SandboxRegistry(mode=self.config.sandbox.mode)
         self.sandbox_registry.register("local", self.local_backend)
         self.sandbox_registry.set_default(self.config.sandbox.default_backend)
@@ -112,22 +109,26 @@ class ConchEngine:
         )
 
         # === C 层: Context Engine + 压缩 + Caching + Skill + Memory (P2) ===
-        from agent_conch.context.engine import LegacyEngine, SimpleTokenCounter
         from agent_conch.context.compact.pipeline import ContextCompressor
-        from agent_conch.context.prompt_caching import PromptCaching
-        from agent_conch.context.skills.registry import SkillLoader, SkillInjector
+        from agent_conch.context.engine import (
+            LegacyEngine,
+            SimpleTokenCounter,
+            TokenBudget,
+        )
         from agent_conch.context.memory.manager import MemoryManager
+        from agent_conch.context.prompt_caching import PromptCaching
+        from agent_conch.context.skills.registry import SkillInjector, SkillLoader
 
         self.token_counter = SimpleTokenCounter()
-        self.context_compressor = ContextCompressor(token_counter=self.token_counter)
-        self.context_engine = LegacyEngine(
-            db=self.session_db,
-            system_prompt=self.system_prompt,
+        self.context_compressor = ContextCompressor(
             token_counter=self.token_counter,
+            llm_caller=self._call_auxiliary_model,
         )
 
         # Prompt Caching (Anthropic 支持 cache_control, 其他 no-op)
-        model_provider = self.config.model.name.split("/")[0] if "/" in self.config.model.name else ""
+        model_provider = (
+            self.config.model.name.split("/")[0] if "/" in self.config.model.name else ""
+        )
         self.prompt_caching = PromptCaching(
             enabled=self.config.agent_loop.auto_compact,
             provider=model_provider,
@@ -150,13 +151,27 @@ class ConchEngine:
             db=self.session_db,
             memory_dir=str(self.config.state.storage_path / "memory"),
         )
+        self.context_engine = LegacyEngine(
+            db=self.session_db,
+            system_prompt=self.system_prompt,
+            token_counter=self.token_counter,
+            compressor=self.context_compressor,
+            memory_manager=self.memory_manager,
+            llm_caller=self._call_auxiliary_model,
+            auto_compact=self.config.agent_loop.auto_compact,
+            token_budget=TokenBudget(
+                reserved_for_response=self.config.model.max_tokens,
+            ),
+        )
 
         # === S 层: Checkpoint (P2) ===
         from agent_conch.state.checkpoint import CheckpointManager
+
         self.checkpoint_manager = CheckpointManager(self.session_db)
 
         # === L 层: Subagent (P2) ===
         from agent_conch.multiagent.subagent import SubagentManager
+
         self.subagent_manager = SubagentManager(self.session_db)
 
         # === Runtime ===
@@ -198,7 +213,9 @@ class ConchEngine:
             GrepTool(backend.validator),  # type: ignore[attr-defined]
             WebSearchTool(),
             WebFetchTool(),
-            SkillTool(skills_dir=os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills")),
+            SkillTool(
+                skills_dir=os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills")
+            ),
             AskUserTool(),
             TaskManageTool(),
             ToolSearchTool(self.tool_search),
@@ -228,6 +245,19 @@ class ConchEngine:
             f"Working directory: {self.cwd}\n"
             f"Model: {self.config.model.name}"
         )
+
+    async def _call_auxiliary_model(self, messages: list[dict[str, Any]]) -> str:
+        """执行不带工具的摘要/记忆辅助模型调用。"""
+        import litellm
+
+        response = await litellm.acompletion(
+            model=self.config.model.name,
+            messages=messages,
+            temperature=0,
+            max_tokens=min(1024, self.config.model.max_tokens),
+            timeout=self.config.model.timeout,
+        )
+        return response.choices[0].message.content or ""
 
     async def run(self, user_input: str, session_id: str | None = None) -> AgentResult:
         """执行 Agent run.

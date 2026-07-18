@@ -10,9 +10,11 @@
 - Coordinator/Worker: 主 Agent 仅持有 spawn/send_message/stop 工具
 - 子 Agent 上下文隔离
 """
+
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -24,11 +26,11 @@ from agent_conch.state.session_db import SessionDB
 class SubagentStatus(str, Enum):
     """子 Agent 状态."""
 
-    PENDING = "pending"      # 已创建但未启动
-    RUNNING = "running"      # 运行中
+    PENDING = "pending"  # 已创建但未启动
+    RUNNING = "running"  # 运行中
     COMPLETED = "completed"  # 正常完成
-    FAILED = "failed"        # 执行失败
-    ORPHANED = "orphaned"    # 父 Agent 崩溃, 成为孤儿
+    FAILED = "failed"  # 执行失败
+    ORPHANED = "orphaned"  # 父 Agent 崩溃, 成为孤儿
     CANCELLED = "cancelled"  # 被父 Agent 取消
 
 
@@ -155,9 +157,7 @@ class SubagentManager:
         self.db.conn.commit()
         return cursor.rowcount > 0
 
-    def complete(
-        self, subagent_id: str, result: str
-    ) -> bool:
+    def complete(self, subagent_id: str, result: str) -> bool:
         """标记子 Agent 为已完成."""
         cursor = self.db.conn.execute(
             "UPDATE subagents SET status = ?, result = ?, finished_at = ? WHERE subagent_id = ?",
@@ -166,9 +166,7 @@ class SubagentManager:
         self.db.conn.commit()
         return cursor.rowcount > 0
 
-    def fail(
-        self, subagent_id: str, error: str
-    ) -> bool:
+    def fail(self, subagent_id: str, error: str) -> bool:
         """标记子 Agent 为失败."""
         cursor = self.db.conn.execute(
             "UPDATE subagents SET status = ?, error = ?, finished_at = ? WHERE subagent_id = ?",
@@ -230,9 +228,7 @@ class SubagentManager:
         for sub in active_subagents:
             # 检查父 Agent 是否还存在
             parent_session = self.db.get_session(sub.parent_id)
-            if parent_session is None:
-                orphans.append(sub)
-            elif parent_session.status in ("error", "completed"):
+            if parent_session is None or parent_session.status in ("error", "completed"):
                 orphans.append(sub)
 
         return orphans
@@ -256,9 +252,7 @@ class SubagentManager:
         self.db.conn.commit()
         return orphans
 
-    def adopt_orphan(
-        self, subagent_id: str, new_parent_id: str
-    ) -> bool:
+    def adopt_orphan(self, subagent_id: str, new_parent_id: str) -> bool:
         """认领孤儿子 Agent.
 
         Args:
@@ -267,7 +261,12 @@ class SubagentManager:
         """
         cursor = self.db.conn.execute(
             "UPDATE subagents SET parent_id = ?, status = ? WHERE subagent_id = ? AND status = ?",
-            (new_parent_id, SubagentStatus.PENDING.value, subagent_id, SubagentStatus.ORPHANED.value),
+            (
+                new_parent_id,
+                SubagentStatus.PENDING.value,
+                subagent_id,
+                SubagentStatus.ORPHANED.value,
+            ),
         )
         self.db.conn.commit()
         return cursor.rowcount > 0
@@ -276,7 +275,7 @@ class SubagentManager:
         """获取子 Agent 禁止使用的工具列表."""
         return list(DELEGATE_BLOCKED_TOOLS)
 
-    def _row_to_record(self, row) -> SubagentRecord:
+    def _row_to_record(self, row: sqlite3.Row) -> SubagentRecord:
         """将数据库行转为 SubagentRecord."""
         return SubagentRecord(
             id=row["id"],

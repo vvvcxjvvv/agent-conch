@@ -5,12 +5,12 @@
 - 非核心工具 schema 超过 context window 10% 时启用
 - 核心工具始终暴露, 非核心工具按需发现
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_conch.tools.base import BaseTool
 from agent_conch.tools.registry import ToolRegistry
 
 

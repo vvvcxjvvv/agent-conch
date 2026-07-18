@@ -5,9 +5,8 @@
 - mode: "non-main" (非主会话用沙箱) | "always" | "never"
 - 可插拔: 注册不同后端 (local/docker/ssh)
 """
-from __future__ import annotations
 
-from typing import Protocol
+from __future__ import annotations
 
 from agent_conch.sandbox.local import LocalBackend, SandboxBackend
 

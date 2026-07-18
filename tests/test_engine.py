@@ -1,10 +1,6 @@
 """L 层测试: Layer + ErrorClassifier + AgentLoop (mock LLM)."""
+
 from __future__ import annotations
-
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from agent_conch.engine.error_classifier import (
     ClassifiedError,
@@ -13,11 +9,9 @@ from agent_conch.engine.error_classifier import (
     RecoveryStrategy,
 )
 from agent_conch.engine.layers.base import (
-    Event,
     GraphContext,
     Layer,
     LayerManager,
-    NodeContext,
 )
 from agent_conch.engine.layers.execution_limits import ExecutionLimitsLayer
 
@@ -69,6 +63,7 @@ class TestLayerManager:
 
         class AbortLayer(Layer):
             name = "abort"
+
             async def on_graph_start(self, ctx: GraphContext) -> None:
                 ctx.should_abort = True
                 ctx.abort_reason = "Test abort"

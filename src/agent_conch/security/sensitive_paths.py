@@ -8,13 +8,11 @@
 
 P1 实现中 PathValidator 已内嵌敏感路径, P2 抽离为独立模块.
 """
+
 from __future__ import annotations
 
 import os
 import platform
-from pathlib import Path
-from typing import Any
-
 
 # === 硬编码敏感路径 — 不可被用户配置覆盖 ===
 
@@ -206,9 +204,7 @@ class SensitivePathChecker:
         """列出所有敏感路径 (硬编码 + 用户)."""
         return self.hardcoded_paths + self.user_paths
 
-    def merge_with_validator(
-        self, validator_sensitive_paths: list[str]
-    ) -> list[str]:
+    def merge_with_validator(self, validator_sensitive_paths: list[str]) -> list[str]:
         """与 PathValidator 的敏感路径列表合并.
 
         确保 PathValidator 的敏感路径包含所有硬编码路径.

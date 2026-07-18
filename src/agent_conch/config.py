@@ -2,6 +2,7 @@
 
 设计文档要求: YAML 驱动 Agent 行为配置。
 """
+
 from __future__ import annotations
 
 import os

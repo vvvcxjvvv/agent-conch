@@ -8,12 +8,12 @@
 
 注意: 需要本机安装 Docker. 在无 Docker 环境下 check_available 返回 False.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from agent_conch.sandbox.fs_bridge import FileStat, FsBridge
 from agent_conch.sandbox.local import CommandResult, SandboxBackend
@@ -46,12 +46,15 @@ class DockerBackend(SandboxBackend):
     async def execute(
         self,
         command: str,
-        cwd: str = "",
-        timeout: int = 30,
+        cwd: str | None = None,
+        timeout: int = 120,
+        env: dict[str, str] | None = None,
         session_id: str = "",
     ) -> CommandResult:
         """在 Docker 容器中执行命令."""
         container_id = self._containers.get(session_id, "")
+        if not container_id and not session_id and self._containers:
+            container_id = next(iter(self._containers.values()))
         if not container_id:
             # 没有容器, 创建临时容器
             container_id = await self._create_container(session_id)
@@ -63,21 +66,30 @@ class DockerBackend(SandboxBackend):
                     exit_code=-1,
                     duration_ms=0,
                     timed_out=False,
-                    cwd=cwd,
+                    cwd=cwd or "",
                 )
 
         work_dir = cwd or self.config.work_dir
         start = time.time()
 
         try:
-            proc = await asyncio.create_subprocess_shell(
-                f"docker exec -w {work_dir} {container_id} sh -c {shell_quote(command)}",
+            environment_args = [
+                item for key, value in (env or {}).items() for item in ("-e", f"{key}={value}")
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                "docker",
+                "exec",
+                "-w",
+                work_dir,
+                *environment_args,
+                container_id,
+                "sh",
+                "-c",
+                command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             duration_ms = int((time.time() - start) * 1000)
 
             return CommandResult(
@@ -111,19 +123,26 @@ class DockerBackend(SandboxBackend):
                 cwd=work_dir,
             )
 
-    async def _create_container(self, session_id: str) -> str:
+    async def _create_container(self, session_id: str, image: str | None = None) -> str:
         """创建 Docker 容器."""
         import uuid
 
         name = f"{self.config.container_name_prefix}{session_id or str(uuid.uuid4())[:8]}"
 
         cmd_parts = [
-            "docker", "run", "-d",
-            "--name", name,
-            "--memory", self.config.memory_limit,
-            "--cpus", self.config.cpu_limit,
-            "--network", self.config.network,
-            "-w", self.config.work_dir,
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            name,
+            "--memory",
+            self.config.memory_limit,
+            "--cpus",
+            self.config.cpu_limit,
+            "--network",
+            self.config.network,
+            "-w",
+            self.config.work_dir,
         ]
 
         if self.config.auto_remove:
@@ -132,11 +151,11 @@ class DockerBackend(SandboxBackend):
         for vol in self.config.volumes:
             cmd_parts.extend(["-v", vol])
 
-        cmd_parts.extend([self.config.image, "sleep", "infinity"])
+        cmd_parts.extend([image or self.config.image, "sleep", "infinity"])
 
         try:
-            proc = await asyncio.create_subprocess_shell(
-                " ".join(cmd_parts),
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_parts,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -149,21 +168,32 @@ class DockerBackend(SandboxBackend):
             pass
         return ""
 
+    async def _remove_container(self, session_id: str) -> None:
+        """等待容器删除完成，避免同名会话容器重建时发生冲突。"""
+        container_id = self._containers.get(session_id, "")
+        if not container_id:
+            return
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker",
+                "rm",
+                "-f",
+                container_id,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+        finally:
+            self._containers.pop(session_id, None)
+
     async def hard_reset(self, session_id: str) -> bool:
         """硬重置: 销毁当前容器, 从镜像创建新容器.
 
         设计文档要求: Docker commit 快照 + restore.
-        P2: 直接销毁重建 (更简单, 后续可加 commit 快照).
+        重置不保留运行时文件；需要保留状态时应先调用 snapshot。
         """
-        container_id = self._containers.get(session_id, "")
-        if container_id:
-            # 停止并删除旧容器
-            await asyncio.create_subprocess_shell(
-                f"docker rm -f {container_id}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            del self._containers[session_id]
+        await self._remove_container(session_id)
 
         # 创建新容器
         new_id = await self._create_container(session_id)
@@ -190,31 +220,27 @@ class DockerBackend(SandboxBackend):
 
     async def restore_snapshot(self, session_id: str, snapshot_tag: str) -> bool:
         """从快照恢复: 销毁当前容器, 从快照镜像创建新容器."""
-        container_id = self._containers.get(session_id, "")
-        if container_id:
-            await asyncio.create_subprocess_shell(
-                f"docker rm -f {container_id}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-        # 临时替换镜像创建容器
-        old_image = self.config.image
-        self.config.image = snapshot_tag
-        new_id = await self._create_container(session_id)
-        self.config.image = old_image
+        await self._remove_container(session_id)
+        new_id = await self._create_container(session_id, image=snapshot_tag)
         return bool(new_id)
 
     async def cleanup(self, session_id: str) -> None:
         """清理: 停止并删除容器."""
-        container_id = self._containers.get(session_id, "")
-        if container_id:
-            await asyncio.create_subprocess_shell(
-                f"docker rm -f {container_id}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            del self._containers[session_id]
+        await self._remove_container(session_id)
+
+    async def remove_snapshot(self, snapshot_tag: str) -> bool:
+        """删除不再需要的快照镜像。"""
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "image",
+            "rm",
+            "-f",
+            snapshot_tag,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        return proc.returncode == 0
 
     async def is_available(self) -> bool:
         """检查 Docker 是否可用."""
@@ -247,21 +273,25 @@ class DockerFsBridge(FsBridge):
     def _get_container(self, session_id: str = "") -> str:
         """获取当前容器 ID."""
         # 简化: 返回第一个容器
-        for sid, cid in self.backend._containers.items():
+        for cid in self.backend._containers.values():
             return cid
         return ""
 
     async def stat(self, path: str) -> FileStat:
         container = self._get_container()
         if not container:
-            return FileStat(path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0)
+            return FileStat(
+                path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0
+            )
 
         result = await self.backend.execute(
             f"stat -c '%s %F %Y' {shell_quote(path)} 2>/dev/null || echo 'NOT_FOUND'",
             timeout=5,
         )
         if "NOT_FOUND" in result.stdout or not result.stdout.strip():
-            return FileStat(path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0)
+            return FileStat(
+                path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0
+            )
 
         parts = result.stdout.strip().split()
         if len(parts) >= 3:
@@ -269,10 +299,16 @@ class DockerFsBridge(FsBridge):
             is_dir = "directory" in parts[1]
             mtime = float(parts[2]) if parts[2].replace(".", "").isdigit() else 0
             return FileStat(
-                path=path, size=size, is_dir=is_dir, is_file=not is_dir,
-                exists=True, modified_time=mtime,
+                path=path,
+                size=size,
+                is_dir=is_dir,
+                is_file=not is_dir,
+                exists=True,
+                modified_time=mtime,
             )
-        return FileStat(path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0)
+        return FileStat(
+            path=path, size=0, is_dir=False, is_file=False, exists=False, modified_time=0
+        )
 
     async def read(self, path: str, offset: int = 0, limit: int = -1) -> bytes:
         container = self._get_container()

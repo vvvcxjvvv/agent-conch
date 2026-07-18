@@ -6,6 +6,7 @@
 
 P1: 基础轨迹存储 + JSONL 导出 + 简单回放
 """
+
 from __future__ import annotations
 
 import json

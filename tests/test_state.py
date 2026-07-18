@@ -1,4 +1,5 @@
 """S 层测试: SessionDB + TrajectoryStore."""
+
 from __future__ import annotations
 
 import json

@@ -8,9 +8,9 @@
 成本逐步递增: 只有仍超预算时才进入下一步.
 Compact Attachment: 压缩时提取 recent files / discovered tools / async tasks.
 """
+
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -140,7 +140,10 @@ class SummaryArchive:
 
         # 构建摘要请求
         summary_request = self._build_summary_request(conversation)
-        summary_text = await self.llm_caller(summary_request)
+        try:
+            summary_text = await self.llm_caller(summary_request)
+        except Exception:
+            return messages, None
 
         if not summary_text:
             return messages, None
@@ -151,15 +154,11 @@ class SummaryArchive:
         # 保留最近 4 条消息
         recent = conversation[-4:] if len(conversation) > 4 else conversation
 
-        result = system_msgs + [
-            {"role": "user", "content": formatted_summary}
-        ] + recent
+        result = system_msgs + [{"role": "user", "content": formatted_summary}] + recent
 
         return result, summary_text
 
-    def _build_summary_request(
-        self, conversation: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _build_summary_request(self, conversation: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """构建摘要 LLM 请求."""
         # 将对话转为文本
         conv_text = []
@@ -276,9 +275,7 @@ class ContextCompressor:
             summary=summary,
         )
 
-    def _extract_attachments(
-        self, messages: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    def _extract_attachments(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         """提取 Compact Attachment: recent files / discovered tools / async tasks."""
         attachments: dict[str, Any] = {
             "recent_files": [],

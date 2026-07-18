@@ -8,11 +8,11 @@
 P1: 实现基础错误分类 (15 种)
 P2: 扩展到 25 种
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 
 class FailoverReason(str, Enum):
@@ -24,23 +24,23 @@ class FailoverReason(str, Enum):
     API_CONTENT_POLICY = "api_content_policy"  # 不重试
     API_AUTH_ERROR = "api_auth_error"
     API_CONNECTION_ERROR = "api_connection_error"
-    API_SERVER_ERROR = "api_server_error"           # 5xx
-    API_BAD_REQUEST = "api_bad_request"             # 400
-    API_NOT_FOUND = "api_not_found"                 # 404 模型不存在
-    SSL_CERT_VERIFICATION = "ssl_cert_verification" # 不重试
-    API_OVERLOADED = "api_overloaded"               # 529
+    API_SERVER_ERROR = "api_server_error"  # 5xx
+    API_BAD_REQUEST = "api_bad_request"  # 400
+    API_NOT_FOUND = "api_not_found"  # 404 模型不存在
+    SSL_CERT_VERIFICATION = "ssl_cert_verification"  # 不重试
+    API_OVERLOADED = "api_overloaded"  # 529
 
     # === 工具错误 (5) ===
     TOOL_EXECUTION_ERROR = "tool_execution_error"
     TOOL_TIMEOUT = "tool_timeout"
-    TOOL_BLOCKED = "tool_blocked"                   # 策略阻止
+    TOOL_BLOCKED = "tool_blocked"  # 策略阻止
     TOOL_NOT_FOUND = "tool_not_found"
-    TOOL_VALIDATION_ERROR = "tool_validation_error" # 参数校验失败
+    TOOL_VALIDATION_ERROR = "tool_validation_error"  # 参数校验失败
 
     # === 上下文错误 (3) ===
     CONTEXT_WINDOW_EXCEEDED = "context_window_exceeded"
-    MAX_TOKENS_EXCEEDED = "max_tokens_exceeded"     # 输出超长
-    CONTEXT_TOO_SHORT = "context_too_short"         # 上下文不足
+    MAX_TOKENS_EXCEEDED = "max_tokens_exceeded"  # 输出超长
+    CONTEXT_TOO_SHORT = "context_too_short"  # 上下文不足
 
     # === 权限/安全 (3) ===
     PERMISSION_DENIED = "permission_denied"
@@ -91,39 +91,32 @@ _STRATEGY_MAP: dict[FailoverReason, RecoveryStrategy] = {
     FailoverReason.API_CONTENT_POLICY: RecoveryStrategy.ABORT,  # 不重试
     FailoverReason.API_AUTH_ERROR: RecoveryStrategy.ABORT,
     FailoverReason.API_CONNECTION_ERROR: RecoveryStrategy.RETRY,
-    FailoverReason.API_SERVER_ERROR: RecoveryStrategy.RETRY,      # 5xx 可重试
-    FailoverReason.API_BAD_REQUEST: RecoveryStrategy.REQUERY,     # 调整请求
-    FailoverReason.API_NOT_FOUND: RecoveryStrategy.ABORT,          # 模型不存在
-    FailoverReason.SSL_CERT_VERIFICATION: RecoveryStrategy.ABORT, # 不重试
+    FailoverReason.API_SERVER_ERROR: RecoveryStrategy.RETRY,  # 5xx 可重试
+    FailoverReason.API_BAD_REQUEST: RecoveryStrategy.REQUERY,  # 调整请求
+    FailoverReason.API_NOT_FOUND: RecoveryStrategy.ABORT,  # 模型不存在
+    FailoverReason.SSL_CERT_VERIFICATION: RecoveryStrategy.ABORT,  # 不重试
     FailoverReason.API_OVERLOADED: RecoveryStrategy.RETRY,
-
     # 工具错误
     FailoverReason.TOOL_EXECUTION_ERROR: RecoveryStrategy.CONTINUE,
     FailoverReason.TOOL_TIMEOUT: RecoveryStrategy.CONTINUE,
     FailoverReason.TOOL_BLOCKED: RecoveryStrategy.CONTINUE,
     FailoverReason.TOOL_NOT_FOUND: RecoveryStrategy.CONTINUE,
     FailoverReason.TOOL_VALIDATION_ERROR: RecoveryStrategy.REQUERY,
-
     # 上下文错误
     FailoverReason.CONTEXT_WINDOW_EXCEEDED: RecoveryStrategy.COMPACT,
     FailoverReason.MAX_TOKENS_EXCEEDED: RecoveryStrategy.REQUERY,  # 减少输出
     FailoverReason.CONTEXT_TOO_SHORT: RecoveryStrategy.CONTINUE,
-
     # 权限/安全
     FailoverReason.PERMISSION_DENIED: RecoveryStrategy.ABORT,
     FailoverReason.SANDBOX_UNAVAILABLE: RecoveryStrategy.ABORT,
     FailoverReason.SANDBOX_TIMEOUT: RecoveryStrategy.RETRY,
-
     # 格式/解析
     FailoverReason.FORMAT_ERROR: RecoveryStrategy.REQUERY,
     FailoverReason.JSON_DECODE_ERROR: RecoveryStrategy.REQUERY,
-
     # 成本
     FailoverReason.COST_LIMIT_EXCEEDED: RecoveryStrategy.ABORT,
-
     # 基础设施
     FailoverReason.DATABASE_ERROR: RecoveryStrategy.RETRY,
-
     # 未知
     FailoverReason.UNKNOWN: RecoveryStrategy.CONTINUE,
 }
@@ -188,11 +181,20 @@ class ErrorClassifier:
             reason = FailoverReason.API_OVERLOADED
 
         # === 内容策略 ===
-        elif "content_policy" in error_msg or "content policy" in error_msg or "content filter" in error_msg:
+        elif (
+            "content_policy" in error_msg
+            or "content policy" in error_msg
+            or "content filter" in error_msg
+        ):
             reason = FailoverReason.API_CONTENT_POLICY
 
         # === 认证错误 ===
-        elif "auth" in error_msg or "401" in error_msg or "403" in error_msg or "api key" in error_msg:
+        elif (
+            "auth" in error_msg
+            or "401" in error_msg
+            or "403" in error_msg
+            or "api key" in error_msg
+        ):
             reason = FailoverReason.API_AUTH_ERROR
 
         # === 模型不存在 (404) ===
@@ -204,19 +206,36 @@ class ErrorClassifier:
             reason = FailoverReason.API_BAD_REQUEST
 
         # === 服务器错误 (5xx) ===
-        elif "500" in error_msg or "502" in error_msg or "503" in error_msg or "internal server error" in error_msg or "internalservererror" in error_type:
+        elif (
+            "500" in error_msg
+            or "502" in error_msg
+            or "503" in error_msg
+            or "internal server error" in error_msg
+            or "internalservererror" in error_type
+        ):
             reason = FailoverReason.API_SERVER_ERROR
 
         # === 连接错误 ===
-        elif "connection" in error_msg or "connectionerror" in error_type or "connectionreset" in error_type:
+        elif (
+            "connection" in error_msg
+            or "connectionerror" in error_type
+            or "connectionreset" in error_type
+        ):
             reason = FailoverReason.API_CONNECTION_ERROR
 
         # === 输出超长 (先于上下文窗口检查, 因为 "too long" 可能匹配两者) ===
-        elif "max_tokens" in error_msg or "max output" in error_msg or "output too long" in error_msg:
+        elif (
+            "max_tokens" in error_msg or "max output" in error_msg or "output too long" in error_msg
+        ):
             reason = FailoverReason.MAX_TOKENS_EXCEEDED
 
         # === 上下文窗口 ===
-        elif "context length" in error_msg or "context window" in error_msg or "too long" in error_msg or "maximum context" in error_msg:
+        elif (
+            "context length" in error_msg
+            or "context window" in error_msg
+            or "too long" in error_msg
+            or "maximum context" in error_msg
+        ):
             reason = FailoverReason.CONTEXT_WINDOW_EXCEEDED
 
         # === 权限 ===
@@ -232,7 +251,11 @@ class ErrorClassifier:
             reason = FailoverReason.TOOL_NOT_FOUND
 
         # === 工具参数校验 ===
-        elif "validation" in error_msg or "invalid argument" in error_msg or "validationerror" in error_type:
+        elif (
+            "validation" in error_msg
+            or "invalid argument" in error_msg
+            or "validationerror" in error_type
+        ):
             reason = FailoverReason.TOOL_VALIDATION_ERROR
 
         # === 工具执行错误 ===

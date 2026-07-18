@@ -4,67 +4,77 @@
 - CLI: conch run / conch replay
 - 使用 click 框架 + rich 终端渲染
 """
+
 from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 import click
 
 from agent_conch import __version__
 from agent_conch.config import ConchConfig
 
+ResultT = TypeVar("ResultT")
 
-def _run_async(coro):
+
+def _run_async(coro: Coroutine[Any, Any, ResultT]) -> ResultT:
     """运行异步任务, 换用 SelectorEventLoop 避免 Windows SSL 清理报错."""
     import platform
 
     if platform.system() == "Windows":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        policy_cls = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+        if policy_cls is not None:
+            asyncio.set_event_loop_policy(policy_cls())
     return asyncio.run(coro)
+
 
 # rich 优雅降级: 不可用时退化为简单 print
 try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
+    from rich.console import Console as RichConsole
+    from rich.panel import Panel as RichPanel
+    from rich.table import Table as RichTable
 
-    console = Console()
+    console: Any = RichConsole()
+    Panel: Any = RichPanel
+    Table: Any = RichTable
 
 except ImportError:
 
     class _SimpleConsole:
-        def print(self, *args, **kwargs):
+        def print(self, *args: Any, **kwargs: Any) -> None:
             # rich 的 print 支持 Panel/Table 对象, 降级时直接 str()
             for arg in args:
                 if hasattr(arg, "_plain"):
-                    print(arg._plain)
+                    print(arg._plain)  # noqa: SLF001
                 else:
                     print(arg)
 
     console = _SimpleConsole()
 
-    class Panel:
+    class _SimplePanel:
         """rich.Panel 的简化替代."""
 
-        def __init__(self, text: str, title: str = "", **kwargs):
+        def __init__(self, text: str, title: str = "", **kwargs: Any) -> None:
             self._plain = f"=== {title} ===\n{text}" if title else text
 
-    class Table:
+    class _SimpleTable:
         """rich.Table 的简化替代."""
 
-        def __init__(self, title: str = "", **kwargs):
+        def __init__(self, title: str = "", **kwargs: Any) -> None:
             self._title = title
             self._headers: list[str] = []
             self._rows: list[list[str]] = []
 
-        def add_column(self, name: str, **kwargs):
+        def add_column(self, name: str, **kwargs: Any) -> None:
             self._headers.append(name)
 
-        def add_row(self, *values, **kwargs):
+        def add_row(self, *values: Any, **kwargs: Any) -> None:
             self._rows.append([str(v) for v in values])
 
-        def __str__(self):
+        def __str__(self) -> str:
             lines = [f"=== {self._title} ==="] if self._title else []
             if self._headers:
                 lines.append("  ".join(self._headers))
@@ -74,8 +84,11 @@ except ImportError:
             return "\n".join(lines)
 
         @property
-        def _plain(self):
+        def _plain(self) -> str:
             return str(self)
+
+    Panel = _SimplePanel
+    Table = _SimpleTable
 
 
 @click.group()
@@ -117,14 +130,16 @@ def run(
     engine = ConchEngine(config=config, cwd=cwd)
 
     if verbose:
-        console.print(Panel(
-            f"[bold]Agent-Conch v{__version__}[/bold]\n"
-            f"Model: {config.model.name}\n"
-            f"Max turns: {config.agent_loop.max_turns}\n"
-            f"CWD: {engine.cwd}\n"
-            f"Session: {session_id or 'auto'}",
-            title="Configuration",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Agent-Conch v{__version__}[/bold]\n"
+                f"Model: {config.model.name}\n"
+                f"Max turns: {config.agent_loop.max_turns}\n"
+                f"CWD: {engine.cwd}\n"
+                f"Session: {session_id or 'auto'}",
+                title="Configuration",
+            )
+        )
 
     try:
         result = _run_async(engine.run(user_input, session_id))
@@ -132,20 +147,26 @@ def run(
         # 输出结果
         console.print()
         if result.status == "completed":
-            console.print(Panel(
-                result.final_response or "(no response)",
-                title=f"[green]✓ Completed[/green] (session: {result.session_id})",
-            ))
+            console.print(
+                Panel(
+                    result.final_response or "(no response)",
+                    title=f"[green]✓ Completed[/green] (session: {result.session_id})",
+                )
+            )
         elif result.status == "max_turns":
-            console.print(Panel(
-                result.final_response or "(no response)",
-                title=f"[yellow]⚠ Max turns reached[/yellow] (session: {result.session_id})",
-            ))
+            console.print(
+                Panel(
+                    result.final_response or "(no response)",
+                    title=f"[yellow]⚠ Max turns reached[/yellow] (session: {result.session_id})",
+                )
+            )
         else:
-            console.print(Panel(
-                f"[red]Error:[/red] {result.error or 'Unknown error'}",
-                title=f"[red]✗ Failed[/red] (session: {result.session_id})",
-            ))
+            console.print(
+                Panel(
+                    f"[red]Error:[/red] {result.error or 'Unknown error'}",
+                    title=f"[red]✗ Failed[/red] (session: {result.session_id})",
+                )
+            )
 
         # 统计信息
         stats = Table(title="Run Statistics", show_header=False)
@@ -222,7 +243,9 @@ def tools(config_path: str | None) -> None:
                     "✓" if tool.is_write_tool else "",
                     "⚠" if tool.is_dangerous else "",
                     ", ".join(tool.tags),
-                    tool.description[:80] + "..." if len(tool.description) > 80 else tool.description,
+                    tool.description[:80] + "..."
+                    if len(tool.description) > 80
+                    else tool.description,
                 )
 
         console.print(table)
@@ -269,19 +292,21 @@ def config(config_path: str | None) -> None:
     """Show current configuration."""
     cfg = ConchConfig.load(config_path)
 
-    console.print(Panel(
-        f"[bold]Model:[/bold] {cfg.model.name} (provider: {cfg.model.provider})\n"
-        f"[bold]Max turns:[/bold] {cfg.agent_loop.max_turns}\n"
-        f"[bold]Max time:[/bold] {cfg.agent_loop.max_time}s\n"
-        f"[bold]Sandbox mode:[/bold] {cfg.sandbox.mode}\n"
-        f"[bold]Sandbox backend:[/bold] {cfg.sandbox.default_backend}\n"
-        f"[bold]Storage:[/bold] {cfg.state.storage_path}\n"
-        f"[bold]DB:[/bold] {cfg.state.db_path}\n"
-        f"[bold]Layers:[/bold] {', '.join(cfg.layers.enabled)}\n"
-        f"[bold]Parallel tools:[/bold] {cfg.tools.parallel_execution}\n"
-        f"[bold]ToolSearch threshold:[/bold] {cfg.tools.tool_search_threshold}",
-        title="Agent-Conch Configuration",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Model:[/bold] {cfg.model.name} (provider: {cfg.model.provider})\n"
+            f"[bold]Max turns:[/bold] {cfg.agent_loop.max_turns}\n"
+            f"[bold]Max time:[/bold] {cfg.agent_loop.max_time}s\n"
+            f"[bold]Sandbox mode:[/bold] {cfg.sandbox.mode}\n"
+            f"[bold]Sandbox backend:[/bold] {cfg.sandbox.default_backend}\n"
+            f"[bold]Storage:[/bold] {cfg.state.storage_path}\n"
+            f"[bold]DB:[/bold] {cfg.state.db_path}\n"
+            f"[bold]Layers:[/bold] {', '.join(cfg.layers.enabled)}\n"
+            f"[bold]Parallel tools:[/bold] {cfg.tools.parallel_execution}\n"
+            f"[bold]ToolSearch threshold:[/bold] {cfg.tools.tool_search_threshold}",
+            title="Agent-Conch Configuration",
+        )
+    )
 
 
 if __name__ == "__main__":

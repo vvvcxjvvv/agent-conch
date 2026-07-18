@@ -4,12 +4,12 @@
 - PathValidator 防路径遍历 + 敏感路径硬编码不可覆盖
 - 硬编码不可覆盖 (/etc, ~/.ssh, /.env 等) + 用户规则叠加
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-
 
 # 敏感路径硬编码 — 不可被用户配置覆盖
 SENSITIVE_PATH_PATTERNS: list[str] = [
@@ -59,7 +59,7 @@ class PathValidator:
     user_sensitive_paths: list[str] = field(default_factory=list)
     cwd: str = field(default_factory=lambda: os.getcwd())
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # 展开 allowed_roots 中的 ~ 和相对路径
         self._resolved_roots: list[Path] = []
         for root in self.allowed_roots:
@@ -110,13 +110,17 @@ class PathValidator:
             # 精确匹配或前缀匹配 (pattern 是 path 的前缀)
             if normalized_path == normalized_pattern or expanded_path == normalized_pattern:
                 return PathValidationResult(
-                    allowed=False, resolved_path=str(resolved),
-                    reason=f"Path is sensitive (pattern): {pattern}", is_sensitive=True,
+                    allowed=False,
+                    resolved_path=str(resolved),
+                    reason=f"Path is sensitive (pattern): {pattern}",
+                    is_sensitive=True,
                 )
             if expanded_path.startswith(normalized_pattern.rstrip("/") + "/"):
                 return PathValidationResult(
-                    allowed=False, resolved_path=str(resolved),
-                    reason=f"Path is sensitive (pattern prefix): {pattern}", is_sensitive=True,
+                    allowed=False,
+                    resolved_path=str(resolved),
+                    reason=f"Path is sensitive (pattern prefix): {pattern}",
+                    is_sensitive=True,
                 )
         # 3b. resolved 路径精确比较
         for sensitive in self._resolved_sensitive:

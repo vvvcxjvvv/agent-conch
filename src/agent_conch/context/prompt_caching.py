@@ -13,6 +13,7 @@
 注意: cache_control 仅对 Anthropic 模型生效; OpenAI/DeepSeek 自动缓存.
 此模块对不支持 cache_control 的模型为 no-op.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -69,12 +70,8 @@ class PromptCaching:
         result = [dict(msg) for msg in messages]  # shallow copy
 
         # 分离 system 和非 system 消息
-        system_indices = [
-            i for i, m in enumerate(result) if m.get("role") == "system"
-        ]
-        non_system_indices = [
-            i for i, m in enumerate(result) if m.get("role") != "system"
-        ]
+        system_indices = [i for i, m in enumerate(result) if m.get("role") == "system"]
+        non_system_indices = [i for i, m in enumerate(result) if m.get("role") != "system"]
 
         # 断点 1: system prompt 末尾
         if system_indices:
@@ -100,9 +97,7 @@ class PromptCaching:
             return len(content) >= self.MIN_CACHEABLE_CHARS
         elif isinstance(content, list):
             # 多模态内容: 检查总文本长度
-            total = sum(
-                len(str(p.get("text", ""))) for p in content if isinstance(p, dict)
-            )
+            total = sum(len(str(p.get("text", ""))) for p in content if isinstance(p, dict))
             return total >= self.MIN_CACHEABLE_CHARS
         return False
 

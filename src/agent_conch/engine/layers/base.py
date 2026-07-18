@@ -5,9 +5,9 @@
 - 横切能力: 配额/可观测/暂停恢复/验证/策略
 - 不同部署场景按需启用不同 Layer
 """
+
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,7 +65,7 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-class Layer(ABC):
+class Layer:
     """Layer 抽象基类.
 
     子类按需覆盖生命周期钩子. 默认实现为空操作.
@@ -100,7 +100,7 @@ class LayerManager:
     按注册顺序执行各 Layer 的钩子.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._layers: list[Layer] = []
 
     def add(self, layer: Layer) -> None:
@@ -109,7 +109,7 @@ class LayerManager:
 
     def remove(self, name: str) -> None:
         """移除 Layer."""
-        self._layers = [l for l in self._layers if l.name != name]
+        self._layers = [layer for layer in self._layers if layer.name != name]
 
     @property
     def layers(self) -> list[Layer]:

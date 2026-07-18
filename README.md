@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-162%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-166%20passed%20%2F%201%20skipped-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)]()
 
 **核心论点：Agent = Model + Harness。** 通过外部系统设计（工具编排、状态管理、沙箱隔离、验证层）让 AI Agent 在生产环境中稳定可控，不依赖模型权重优化。
@@ -240,17 +240,17 @@ pytest tests/test_context.py    # C 层
 pytest tests/test_engine.py     # L 层
 ```
 
-当前状态：**162 个测试全部通过**，覆盖 E/T/C/L/S 五层 + 集成测试。
+当前状态：**166 个测试通过，1 个 Docker 集成测试因本机无可用 Docker daemon 条件跳过**；覆盖 E/T/C/L/S 五层与集成链路。
 
 | 测试文件 | 覆盖层 | 测试数 |
 |----------|--------|--------|
-| `test_sandbox.py` | E 层 — 沙箱 | 20 |
-| `test_tools.py` | T 层 — 核心工具 | 17 |
-| `test_tool_system.py` | T 层 — 工具系统 | 20 |
-| `test_context.py` | C 层 — 上下文与记忆 | 32 |
-| `test_engine.py` | L 层 — 引擎 | 20 |
-| `test_state.py` | S 层 — 状态存储 | 16 |
-| `test_p2.py` | P2 综合 | 32 |
+| `test_sandbox.py` | E 层 — 沙箱 | 22 + 1 Docker 条件跳过 |
+| `test_tools.py` | T 层 — 核心工具 | 19 |
+| `test_tool_system.py` | T 层 — 工具系统 | 24 |
+| `test_context.py` | C 层 — 上下文与记忆 | 33 |
+| `test_engine.py` | L 层 — 引擎 | 14 |
+| `test_state.py` | S 层 — 状态存储 | 15 |
+| `test_p2.py` | P2 综合 | 34 |
 | `test_integration.py` | 集成 | 5 |
 
 ## 路线图

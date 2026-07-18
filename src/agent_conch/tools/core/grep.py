@@ -1,4 +1,5 @@
 """T 层核心工具: grep — 内容搜索."""
+
 from __future__ import annotations
 
 import re
@@ -76,7 +77,11 @@ class GrepTool(BaseTool):
 
                 for line_no, line in enumerate(text.splitlines(), 1):
                     if regex.search(line):
-                        rel = file_path.relative_to(base_path) if base_path.is_dir() else file_path.name
+                        rel = (
+                            file_path.relative_to(base_path)
+                            if base_path.is_dir()
+                            else file_path.name
+                        )
                         matches.append(f"{rel}:{line_no}:{line.strip()}")
                         total_matches += 1
                         if len(matches) >= validated.max_results:

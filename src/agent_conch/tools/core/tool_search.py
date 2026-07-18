@@ -1,4 +1,5 @@
 """T 层核心工具: tool_search — 工具搜索 (延迟发现)."""
+
 from __future__ import annotations
 
 import json

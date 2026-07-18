@@ -7,15 +7,13 @@
 
 直接 mock AgentLoop._call_model, 不依赖真实 API.
 """
+
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from agent_conch.config import ConchConfig
 from agent_conch.engine.agent_loop import LLMResponse
@@ -61,35 +59,49 @@ class TestIntegration:
         readme_path = str(tmp_workspace / "README.md")
         main_py_path = str(tmp_workspace / "main.py")
 
-        seq = MockLLMSequence([
-            # Turn 1: 读取 README.md
-            LLMResponse(
-                tool_calls=[make_tool_call("c1", "read_file", {"file_path": readme_path})],
-                finish_reason="tool_calls",
-            ),
-            # Turn 2: 编辑 main.py
-            LLMResponse(
-                tool_calls=[make_tool_call(
-                    "c2", "edit_file",
-                    {"file_path": main_py_path, "old_string": "hello world", "new_string": "hello conch"},
-                )],
-                finish_reason="tool_calls",
-            ),
-            # Turn 3: 运行测试
-            LLMResponse(
-                tool_calls=[make_tool_call(
-                    "c3", "bash",
-                    {"command": f'cd "{tmp_workspace}" && "{_PYTHON_EXE}" -m pytest tests/ -v'},
-                )],
-                finish_reason="tool_calls",
-            ),
-            # Turn 4: 最终回答
-            LLMResponse(
-                content="I've read the README, updated main.py to print 'hello conch', "
-                "and verified the tests pass successfully.",
-                finish_reason="stop",
-            ),
-        ])
+        seq = MockLLMSequence(
+            [
+                # Turn 1: 读取 README.md
+                LLMResponse(
+                    tool_calls=[make_tool_call("c1", "read_file", {"file_path": readme_path})],
+                    finish_reason="tool_calls",
+                ),
+                # Turn 2: 编辑 main.py
+                LLMResponse(
+                    tool_calls=[
+                        make_tool_call(
+                            "c2",
+                            "edit_file",
+                            {
+                                "file_path": main_py_path,
+                                "old_string": "hello world",
+                                "new_string": "hello conch",
+                            },
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                # Turn 3: 运行测试
+                LLMResponse(
+                    tool_calls=[
+                        make_tool_call(
+                            "c3",
+                            "bash",
+                            {
+                                "command": f'cd "{tmp_workspace}" && "{_PYTHON_EXE}" -m pytest tests/ -v'
+                            },
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                # Turn 4: 最终回答
+                LLMResponse(
+                    content="I've read the README, updated main.py to print 'hello conch', "
+                    "and verified the tests pass successfully.",
+                    finish_reason="stop",
+                ),
+            ]
+        )
 
         config = ConchConfig()
         config.state.storage_dir = str(tmp_workspace / ".agent-conch")
@@ -127,7 +139,9 @@ class TestIntegration:
         assert len(trajectory) >= 4
 
         # 5. 最终回答
-        assert "hello conch" in result.final_response or "tests pass" in result.final_response.lower()
+        assert (
+            "hello conch" in result.final_response or "tests pass" in result.final_response.lower()
+        )
 
         engine.close()
 
@@ -136,16 +150,18 @@ class TestIntegration:
         file1 = str(tmp_workspace / "README.md")
         file2 = str(tmp_workspace / "main.py")
 
-        seq = MockLLMSequence([
-            LLMResponse(
-                tool_calls=[
-                    make_tool_call("p1", "read_file", {"file_path": file1}),
-                    make_tool_call("p2", "read_file", {"file_path": file2}),
-                ],
-                finish_reason="tool_calls",
-            ),
-            LLMResponse(content="Read both files in parallel.", finish_reason="stop"),
-        ])
+        seq = MockLLMSequence(
+            [
+                LLMResponse(
+                    tool_calls=[
+                        make_tool_call("p1", "read_file", {"file_path": file1}),
+                        make_tool_call("p2", "read_file", {"file_path": file2}),
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(content="Read both files in parallel.", finish_reason="stop"),
+            ]
+        )
 
         config = ConchConfig()
         config.state.storage_dir = str(tmp_workspace / ".agent-conch-parallel")
@@ -173,13 +189,17 @@ class TestIntegration:
 
     async def test_sandbox_isolation(self, tmp_workspace: Path):
         """验证沙箱隔离生效 — 设计文档验证标准之一."""
-        seq = MockLLMSequence([
-            LLMResponse(
-                tool_calls=[make_tool_call("s1", "read_file", {"file_path": "/etc/passwd"})],
-                finish_reason="tool_calls",
-            ),
-            LLMResponse(content="The sensitive path was blocked by the sandbox.", finish_reason="stop"),
-        ])
+        seq = MockLLMSequence(
+            [
+                LLMResponse(
+                    tool_calls=[make_tool_call("s1", "read_file", {"file_path": "/etc/passwd"})],
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(
+                    content="The sensitive path was blocked by the sandbox.", finish_reason="stop"
+                ),
+            ]
+        )
 
         config = ConchConfig()
         config.state.storage_dir = str(tmp_workspace / ".agent-conch-sandbox")
@@ -201,7 +221,12 @@ class TestIntegration:
         tool_messages = [m for m in messages if m.role == "tool"]
         assert len(tool_messages) >= 1
         tool_content = tool_messages[0].content.lower()
-        assert "error" in tool_content or "permission" in tool_content or "sensitive" in tool_content or "blocked" in tool_content
+        assert (
+            "error" in tool_content
+            or "permission" in tool_content
+            or "sensitive" in tool_content
+            or "blocked" in tool_content
+        )
 
         engine.close()
 
@@ -221,7 +246,9 @@ class TestIntegration:
                     tool_calls=[make_tool_call("r1", "read_file", {"file_path": readme_path})],
                     finish_reason="tool_calls",
                 )
-            return LLMResponse(content="Successfully read the file after retry.", finish_reason="stop")
+            return LLMResponse(
+                content="Successfully read the file after retry.", finish_reason="stop"
+            )
 
         config = ConchConfig()
         config.state.storage_dir = str(tmp_workspace / ".agent-conch-retry")
@@ -242,13 +269,15 @@ class TestIntegration:
         """验证轨迹回放功能."""
         readme_path = str(tmp_workspace / "README.md")
 
-        seq = MockLLMSequence([
-            LLMResponse(
-                tool_calls=[make_tool_call("t1", "read_file", {"file_path": readme_path})],
-                finish_reason="tool_calls",
-            ),
-            LLMResponse(content="Read complete.", finish_reason="stop"),
-        ])
+        seq = MockLLMSequence(
+            [
+                LLMResponse(
+                    tool_calls=[make_tool_call("t1", "read_file", {"file_path": readme_path})],
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(content="Read complete.", finish_reason="stop"),
+            ]
+        )
 
         config = ConchConfig()
         config.state.storage_dir = str(tmp_workspace / ".agent-conch-replay")

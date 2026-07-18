@@ -1,4 +1,5 @@
 """T 层核心工具: read_file — 文件读取."""
+
 from __future__ import annotations
 
 from typing import Any

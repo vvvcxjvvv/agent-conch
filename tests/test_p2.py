@@ -1,22 +1,19 @@
 """P2 测试: ErrorClassifier 扩展 + 敏感路径 + Checkpoint + Subagent."""
+
 from __future__ import annotations
-
-from pathlib import Path
-
-import pytest
 
 from agent_conch.engine.error_classifier import (
     ErrorClassifier,
     FailoverReason,
     RecoveryStrategy,
 )
+from agent_conch.multiagent.subagent import DELEGATE_BLOCKED_TOOLS, SubagentManager, SubagentStatus
 from agent_conch.security.sensitive_paths import (
     SensitivePathChecker,
     is_sensitive_path,
 )
 from agent_conch.state.checkpoint import CheckpointManager
 from agent_conch.state.session_db import SessionDB
-from agent_conch.multiagent.subagent import SubagentManager, SubagentStatus, DELEGATE_BLOCKED_TOOLS
 
 
 class TestErrorClassifierP2:
@@ -96,6 +93,7 @@ class TestErrorClassifierP2:
     def test_never_retry_set(self):
         """不重试的错误集包含关键类型."""
         from agent_conch.engine.error_classifier import _NEVER_RETRY_REASONS
+
         assert FailoverReason.SSL_CERT_VERIFICATION in _NEVER_RETRY_REASONS
         assert FailoverReason.API_CONTENT_POLICY in _NEVER_RETRY_REASONS
         assert FailoverReason.API_AUTH_ERROR in _NEVER_RETRY_REASONS
@@ -174,7 +172,8 @@ class TestCheckpointManager:
 
         mgr = CheckpointManager(tmp_db)
         await mgr.save_checkpoint(
-            "s1", 1,
+            "s1",
+            1,
             [{"role": "user", "content": "Checkpoint message"}],
         )
 

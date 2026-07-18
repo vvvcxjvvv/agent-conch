@@ -1,8 +1,10 @@
 """T 层核心工具: ask_user — 用户提问."""
+
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -68,7 +70,7 @@ class AskUserTool(BaseTool):
         if options:
             for i, opt in enumerate(options, 1):
                 print(f"  {i}. {opt}")
-            print(f"  (enter number or type your answer)")
+            print("  (enter number or type your answer)")
 
         # 在事件循环中运行同步 input
         answer = await asyncio.to_thread(input, "> ")

@@ -1,4 +1,5 @@
 """T 层核心工具: bash — Shell 命令执行."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -46,7 +47,7 @@ class BashTool(BaseTool):
             output_parts.append(f"stderr:\n{result.stderr}")
         output_parts.append(f"exit_code: {result.exit_code}")
         if result.timed_out:
-            output_parts.append(f"[TIMED OUT after {result.timeout}s]")
+            output_parts.append(f"[TIMED OUT after {validated.timeout}s]")
 
         content = "\n".join(output_parts)
         is_error = result.exit_code != 0

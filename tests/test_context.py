@@ -1,24 +1,22 @@
 """P2 测试: C 层 Context Engine + 压缩 + Caching + Skill + Memory."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from agent_conch.context.engine import (
-    ContextEngine,
-    LegacyEngine,
-    SimpleTokenCounter,
-    TokenBudget,
-)
 from agent_conch.context.compact.pipeline import (
     ContentFolding,
     ContextCompressor,
     ResultCleanup,
 )
+from agent_conch.context.engine import (
+    LegacyEngine,
+    SimpleTokenCounter,
+    TokenBudget,
+)
+from agent_conch.context.memory.manager import MemoryManager
 from agent_conch.context.prompt_caching import PromptCaching
 from agent_conch.context.skills.registry import Skill, SkillFrontmatter, SkillInjector, SkillLoader
-from agent_conch.context.memory.manager import MemoryManager
 from agent_conch.state.session_db import SessionDB
 
 
@@ -35,7 +33,21 @@ class TestTokenCounter:
 
     def test_estimate_tool_calls(self):
         counter = SimpleTokenCounter()
-        messages = [{"role": "assistant", "content": "", "tool_calls": [{"id": "1", "function": {"name": "read_file", "arguments": '{"file_path": "README.md"}'}}]}]
+        messages = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "1",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": '{"file_path": "README.md"}',
+                        },
+                    }
+                ],
+            }
+        ]
         tokens = counter.estimate(messages)
         assert tokens > 0
 
@@ -63,6 +75,50 @@ class TestLegacyEngine:
         await engine.maintain("s1")
         state = engine.get_state("s1")
         assert state.turn_count == 1
+
+    async def test_maintain_auto_compacts_and_reuses_result(self, tmp_db: SessionDB):
+        tmp_db.create_session("s1", model_name="test")
+        for _ in range(6):
+            tmp_db.add_message("s1", "user", "x" * 3000)
+
+        async def summarize(_messages):
+            return "Historical Task: compacted context"
+
+        engine = LegacyEngine(
+            db=tmp_db,
+            system_prompt="System",
+            compressor=ContextCompressor(llm_caller=summarize),
+            token_budget=TokenBudget(total=200, reserved_for_response=0, reserved_for_system=0),
+        )
+        await engine.bootstrap("s1")
+        await engine.maintain("s1")
+
+        state = engine.get_state("s1")
+        result = await engine.assemble("s1", TokenBudget())
+        assert state is not None
+        assert state.compact_count == 1
+        assert state.last_compact_turn == 1
+        assert result.compacted is True
+        assert "Context Summary" in result.messages[1]["content"]
+
+    async def test_after_turn_persists_llm_memory(self, tmp_db: SessionDB):
+        async def extract(_messages):
+            return '[{"content":"Use Python","type":"preference"}]'
+
+        manager = MemoryManager(
+            db=tmp_db,
+            memory_dir=str(tmp_db.db_path.parent / "memory"),
+        )
+        engine = LegacyEngine(
+            db=tmp_db,
+            memory_manager=manager,
+            llm_caller=extract,
+        )
+        await engine.after_turn("s1", {"content": "User prefers Python."})
+        entries = manager.long_term.search("Python")
+        assert len(entries) == 1
+        assert entries[0].memory_type == "preference"
+        assert (tmp_db.db_path.parent / "memory" / "MEMORY.md").exists()
 
 
 class TestResultCleanup:
@@ -143,6 +199,16 @@ class TestContextCompressor:
         assert result.original_token_count > result.compacted_token_count
         assert len(result.steps_applied) > 0
 
+    async def test_summary_failure_keeps_folded_context(self):
+        async def unavailable(_messages):
+            raise RuntimeError("auxiliary model unavailable")
+
+        compressor = ContextCompressor(llm_caller=unavailable)
+        messages = [{"role": "user", "content": "X" * 3000} for _ in range(6)]
+        result = await compressor.compact(messages, budget=10)
+        assert result.summary is None
+        assert result.steps_applied[-1] == "summary_archive"
+
 
 class TestPromptCaching:
     def test_noop_for_non_anthropic(self):
@@ -220,9 +286,7 @@ class TestSkillLoader:
         for name in ["skill-a", "skill-b"]:
             d = skills_dir / name
             d.mkdir(parents=True)
-            (d / "SKILL.md").write_text(
-                f"---\nname: {name}\ndescription: {name}\n---\nBody\n"
-            )
+            (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name}\n---\nBody\n")
         loader = SkillLoader(cwd=str(tmp_path))
         # 模拟 project skills 目录
         loader._find_project_skills_dir = lambda: str(skills_dir)  # type: ignore

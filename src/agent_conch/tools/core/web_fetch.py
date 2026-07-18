@@ -1,4 +1,5 @@
 """T 层核心工具: web_fetch — Web 页面抓取."""
+
 from __future__ import annotations
 
 import re

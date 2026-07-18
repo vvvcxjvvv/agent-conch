@@ -4,6 +4,7 @@
 - ToolPolicy: Allow/Deny + Sender Policy + Sandbox Policy 三层
 - 读、写、执行、网络、部署操作分级管控
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -156,17 +157,14 @@ class ToolPolicy:
         return True
 
     def _get_var(self, var: str, ctx: PolicyContext) -> Any:
-        if var == "action":
-            return ctx.action.value
-        elif var == "sender":
-            return ctx.sender
-        elif var == "sandbox_mode":
-            return ctx.sandbox_mode
-        elif var == "is_main_session":
-            return ctx.is_main_session
-        elif var == "tool_name":
-            return ctx.tool_name
-        return None
+        values = {
+            "action": ctx.action.value,
+            "sender": ctx.sender,
+            "sandbox_mode": ctx.sandbox_mode,
+            "is_main_session": ctx.is_main_session,
+            "tool_name": ctx.tool_name,
+        }
+        return values.get(var)
 
     def add_rule(self, rule: PolicyRule) -> None:
         """添加策略规则."""

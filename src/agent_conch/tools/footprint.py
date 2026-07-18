@@ -4,11 +4,11 @@
 - 控制核心工具膨胀
 - 扩展优先级: 扩展现有代码 → CLI+Skill → service-gated → plugin → MCP → 新核心工具
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any
 
 
 class FootprintLevel(IntEnum):
@@ -50,7 +50,9 @@ class FootprintLadder:
     以此类推, 尽量保持核心工具集精简.
     """
 
-    def evaluate(self, needed_capability: str, existing_tools: list[str] | None = None) -> FootprintSuggestion:
+    def evaluate(
+        self, needed_capability: str, existing_tools: list[str] | None = None
+    ) -> FootprintSuggestion:
         """评估新能力的扩展建议."""
         # P1: 简化逻辑, 实际应根据能力描述做语义匹配
         capability_lower = needed_capability.lower()
@@ -87,7 +89,4 @@ class FootprintLadder:
 
     def describe_levels(self) -> list[str]:
         """返回所有级别的描述."""
-        return [
-            f"Level {level.value}: {FOOTPRINT_DESCRIPTIONS[level]}"
-            for level in FootprintLevel
-        ]
+        return [f"Level {level.value}: {FOOTPRINT_DESCRIPTIONS[level]}" for level in FootprintLevel]

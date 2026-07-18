@@ -1,9 +1,7 @@
 """T 层测试: ToolRegistry + ToolPolicy + ToolSearch."""
+
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 from pydantic import BaseModel, Field
 
 from agent_conch.tools.base import BaseTool, ToolCall, ToolResult
@@ -12,14 +10,14 @@ from agent_conch.tools.registry import ToolRegistry
 from agent_conch.tools.tool_policy import (
     PolicyContext,
     PolicyDecision,
+    PolicyRule,
     ToolAction,
     ToolPolicy,
-    PolicyRule,
 )
 from agent_conch.tools.tool_search import ToolSearch
 
-
 # === 测试用 mock 工具 ===
+
 
 class MockInput(BaseModel):
     value: str = Field(default="default")

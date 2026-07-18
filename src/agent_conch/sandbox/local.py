@@ -5,14 +5,14 @@
 - Local: 开发/个人场景, 默认信任
 - 命令执行 + 文件操作统一通过后端
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from contextlib import suppress
+from dataclasses import dataclass
 
 from agent_conch.sandbox.fs_bridge import FsBridge, LocalFsBridge
 from agent_conch.sandbox.path_validator import PathValidator
@@ -49,6 +49,7 @@ class SandboxBackend(ABC):
         cwd: str | None = None,
         timeout: int = 120,
         env: dict[str, str] | None = None,
+        session_id: str = "",
     ) -> CommandResult:
         """执行 shell 命令."""
         ...
@@ -91,6 +92,7 @@ class LocalBackend(SandboxBackend):
         cwd: str | None = None,
         timeout: int = 120,
         env: dict[str, str] | None = None,
+        session_id: str = "",
     ) -> CommandResult:
         """执行 shell 命令 (异步).
 
@@ -134,10 +136,8 @@ class LocalBackend(SandboxBackend):
         except TimeoutError:
             duration_ms = int((time.time() - start) * 1000)
             # 尝试终止进程
-            try:
-                process.kill()  # type: ignore[possibly-undefined]
-            except Exception:
-                pass
+            with suppress(Exception):
+                process.kill()
             return CommandResult(
                 command=command,
                 stdout="",

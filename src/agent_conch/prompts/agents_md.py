@@ -4,6 +4,7 @@
 - 从 cwd 向上遍历发现 AGENTS.md
 - 类似 .git 目录的查找方式
 """
+
 from __future__ import annotations
 
 import os

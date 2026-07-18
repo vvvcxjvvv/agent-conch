@@ -5,10 +5,11 @@
 - 瞬态故障抑制: 连续失败 60s 内不再暴露
 - 核心工具默认注册
 """
+
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from agent_conch.tools.base import BaseTool, ToolCall, ToolExecutionRecord, ToolResult
@@ -87,7 +88,10 @@ class ToolRegistry:
 
         # 瞬态故障抑制
         if now < health.suppressed_until:
-            return False, f"Tool suppressed due to transient failures (until {health.suppressed_until:.0f})"
+            return (
+                False,
+                f"Tool suppressed due to transient failures (until {health.suppressed_until:.0f})",
+            )
 
         # 实际检查
         available, reason = await tool.check_available()

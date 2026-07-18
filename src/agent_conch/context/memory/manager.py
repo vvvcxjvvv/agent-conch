@@ -10,6 +10,7 @@
 记忆自动提取: 每轮结束后异步触发 LLM 提取可持久化知识
 写权限限制 + 去重签名
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -44,7 +45,7 @@ class ShortTermMemory:
     生命周期: 单次会话.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._carryover: dict[str, Any] = {}
         self._temp_facts: list[str] = []
         self._context_snippets: dict[str, str] = {}
@@ -380,9 +381,7 @@ class MemoryManager:
 
         return added
 
-    async def _llm_extract(
-        self, content: str, llm_caller: Any
-    ) -> list[dict[str, str]]:
+    async def _llm_extract(self, content: str, llm_caller: Any) -> list[dict[str, str]]:
         """使用 LLM 提取记忆."""
         prompt = (
             "Extract persistent knowledge from the following conversation that "
@@ -391,14 +390,21 @@ class MemoryManager:
             "2. Important decisions and their rationale\n"
             "3. Error lessons and solutions\n"
             "4. Project-specific knowledge\n\n"
-            "Return as JSON array: [{\"content\": \"...\", \"type\": \"fact|preference|decision|error_lesson\"}]\n\n"
+            'Return as JSON array: [{"content": "...", "type": "fact|preference|decision|error_lesson"}]\n\n'
             f"Conversation:\n{content[:3000]}"
         )
         try:
             result = await llm_caller([{"role": "user", "content": prompt}])
-            import json
-
-            return json.loads(result)
+            extracted = json.loads(result)
+            if not isinstance(extracted, list):
+                return []
+            return [
+                {"content": item["content"], "type": item["type"]}
+                for item in extracted
+                if isinstance(item, dict)
+                and isinstance(item.get("content"), str)
+                and item.get("type") in {"fact", "preference", "decision", "error_lesson"}
+            ]
         except Exception:
             return []
 

@@ -5,9 +5,9 @@
 - 统一接口: stat / read / write / rename
 - 后端可替换 (Local / Docker / SSH), 工具层无需感知差异
 """
+
 from __future__ import annotations
 
-import os
 import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -73,8 +73,12 @@ class LocalFsBridge(FsBridge):
         p = Path(resolved)
         if not p.exists():
             return FileStat(
-                path=resolved, size=0, is_dir=False, is_file=False,
-                exists=False, modified_time=0,
+                path=resolved,
+                size=0,
+                is_dir=False,
+                is_file=False,
+                exists=False,
+                modified_time=0,
             )
         st = p.stat()
         return FileStat(

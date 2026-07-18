@@ -1,4 +1,5 @@
 """T 层核心工具: skill — Skill 调用."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +11,9 @@ from agent_conch.tools.base import BaseTool, ToolResult
 
 class SkillInput(BaseModel):
     skill_name: str = Field(..., description="Name of the skill to invoke")
-    action: str = Field("load", description="Action: 'load' (inject skill) or 'list' (list available)")
+    action: str = Field(
+        "load", description="Action: 'load' (inject skill) or 'list' (list available)"
+    )
     args: str | None = Field(None, description="Arguments for the skill (if needed)")
 
 

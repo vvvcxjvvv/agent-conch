@@ -5,9 +5,11 @@
 - RuntimeRegistry: 注册和选择 runtime
 - 通用 Harness 不绑定单一 Agent 循环
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,22 +67,22 @@ class AgentRuntime(ABC):
 class RuntimeRegistry:
     """Runtime 注册表."""
 
-    def __init__(self):
-        self._runtimes: dict[str, type[AgentRuntime]] = {}
+    def __init__(self) -> None:
+        self._runtimes: dict[str, Callable[..., AgentRuntime]] = {}
 
-    def register(self, name: str, runtime_cls: type[AgentRuntime]) -> None:
-        self._runtimes[name] = runtime_cls
+    def register(self, name: str, runtime_factory: Callable[..., AgentRuntime]) -> None:
+        self._runtimes[name] = runtime_factory
 
-    def select(self, config: RuntimeConfig) -> AgentRuntime:
+    def select(self, config: RuntimeConfig, **dependencies: Any) -> AgentRuntime:
         """根据配置选择并实例化 runtime."""
         name = config.name
         if name not in self._runtimes:
             # fallback to builtin
             name = "builtin"
-        runtime_cls = self._runtimes.get(name)
-        if runtime_cls is None:
+        runtime_factory = self._runtimes.get(name)
+        if runtime_factory is None:
             raise ValueError(f"No runtime registered for '{name}'")
-        return runtime_cls(config)
+        return runtime_factory(config, **dependencies)
 
     def list_runtimes(self) -> list[str]:
         return list(self._runtimes.keys())

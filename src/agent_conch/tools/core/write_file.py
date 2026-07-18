@@ -1,4 +1,5 @@
 """T 层核心工具: write_file — 文件写入."""
+
 from __future__ import annotations
 
 from typing import Any

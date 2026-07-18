@@ -7,6 +7,7 @@
 
 P1 阶段基础表: sessions / messages / turns / trajectories
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+JsonDict = dict[str, Any]
 
 
 @dataclass
@@ -39,7 +42,7 @@ class Message:
     session_id: str = ""
     role: str = ""  # system | user | assistant | tool
     content: str = ""
-    tool_calls: list[dict] | None = None  # assistant 发起的 tool_call
+    tool_calls: list[JsonDict] | None = None  # assistant 发起的 tool_call
     tool_call_id: str | None = None  # tool 响应对应的 call_id
     turn_index: int = 0
     created_at: float = field(default_factory=time.time)
@@ -148,7 +151,7 @@ class SessionDB:
         session_id: str,
         cwd: str = "",
         model_name: str = "",
-        metadata: dict | None = None,
+        metadata: JsonDict | None = None,
     ) -> Session:
         now = time.time()
         self.conn.execute(
@@ -167,9 +170,7 @@ class SessionDB:
         )
 
     def get_session(self, session_id: str) -> Session | None:
-        row = self.conn.execute(
-            "SELECT * FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None:
             return None
         return Session(
@@ -196,7 +197,7 @@ class SessionDB:
         session_id: str,
         role: str,
         content: str = "",
-        tool_calls: list[dict] | None = None,
+        tool_calls: list[JsonDict] | None = None,
         tool_call_id: str | None = None,
         turn_index: int = 0,
     ) -> int:
@@ -221,12 +222,10 @@ class SessionDB:
         self.conn.commit()
         return cursor.lastrowid  # type: ignore
 
-    def get_messages(
-        self, session_id: str, limit: int = 0
-    ) -> list[Message]:
+    def get_messages(self, session_id: str, limit: int = 0) -> list[Message]:
         """获取会话消息列表. limit=0 表示全部."""
         query = "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC"
-        params: tuple = (session_id,)
+        params: tuple[Any, ...] = (session_id,)
         if limit > 0:
             query += " LIMIT ?"
             params = (session_id, limit)
@@ -245,10 +244,10 @@ class SessionDB:
             for row in rows
         ]
 
-    def get_messages_as_dicts(self, session_id: str, limit: int = 0) -> list[dict]:
+    def get_messages_as_dicts(self, session_id: str, limit: int = 0) -> list[JsonDict]:
         """获取消息并转为 LLM API 格式的 dict 列表."""
         msgs = self.get_messages(session_id, limit)
-        result: list[dict] = []
+        result: list[JsonDict] = []
         for m in msgs:
             entry: dict[str, Any] = {
                 "role": m.role,
@@ -290,7 +289,7 @@ class SessionDB:
         self,
         session_id: str,
         turn_id: int | None,
-        step_data: dict,
+        step_data: JsonDict,
     ) -> int:
         cursor = self.conn.execute(
             "INSERT INTO trajectories (session_id, turn_id, step_data, created_at) "
@@ -300,7 +299,7 @@ class SessionDB:
         self.conn.commit()
         return cursor.lastrowid  # type: ignore
 
-    def get_trajectory(self, session_id: str) -> list[dict]:
+    def get_trajectory(self, session_id: str) -> list[JsonDict]:
         rows = self.conn.execute(
             "SELECT * FROM trajectories WHERE session_id = ? ORDER BY id ASC",
             (session_id,),
@@ -314,14 +313,14 @@ class SessionDB:
             "SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        return row["cnt"]
+        return int(row["cnt"])
 
     def count_turns(self, session_id: str) -> int:
         row = self.conn.execute(
             "SELECT COUNT(*) as cnt FROM turns WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        return row["cnt"]
+        return int(row["cnt"])
 
     def close(self) -> None:
         if self._conn:
