@@ -1,6 +1,6 @@
 """集成测试: 端到端验证「读取文件→修改→运行测试→回答」循环.
 
-设计文档验证标准:
+验证目标:
 1. 能完成「读取文件 → 修改 → 运行测试 → 回答」循环
 2. SQLite 持久化
 3. 沙箱隔离生效
@@ -151,7 +151,7 @@ class TestIntegration:
         engine.close()
 
     async def test_parallel_tool_execution(self, tmp_workspace: Path):
-        """验证并行工具执行 — 设计文档自研差异化."""
+        """验证互不依赖的工具调用可以并行执行。"""
         file1 = str(tmp_workspace / "README.md")
         file2 = str(tmp_workspace / "main.py")
 
@@ -193,7 +193,7 @@ class TestIntegration:
         engine.close()
 
     async def test_sandbox_isolation(self, tmp_workspace: Path):
-        """验证沙箱隔离生效 — 设计文档验证标准之一."""
+        """验证敏感路径会被沙箱策略阻断。"""
         seq = MockLLMSequence(
             [
                 LLMResponse(

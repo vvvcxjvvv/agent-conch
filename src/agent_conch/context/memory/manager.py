@@ -1,6 +1,6 @@
 """C 层: 分层记忆 — ShortTerm + Session + LongTerm + Meta.
 
-设计文档要求:
+存储策略:
 | 层级   | 实现                            | 存储              | 生命周期 |
 | 短期   | 工作记忆 (当前对话 + carryover) | 进程内存          | 单次会话 |
 | 中期   | 会话记忆 (ContextEngine)        | SQLite + 内存     | 跨轮次   |
@@ -221,7 +221,7 @@ class LongTermMemory:
         ]
 
     def search(self, query: str, limit: int = 10) -> list[MemoryEntry]:
-        """搜索长期记忆 (LIKE 模糊匹配, P3 替换为向量检索)."""
+        """使用 LIKE 对长期记忆执行模糊匹配。"""
         rows = self.db.conn.execute(
             "SELECT * FROM long_term_memory WHERE content LIKE ? ORDER BY pinned DESC, created_at DESC LIMIT ?",
             (f"%{query}%", limit),

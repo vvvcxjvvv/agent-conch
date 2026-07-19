@@ -1,8 +1,8 @@
 """Prompt: System Prompt 构建.
 
-设计文档要求:
+构建策略:
 - 基础 System Prompt: base + env + AGENTS.md 发现
-- P1: base 模式
+- base 模式提供基础约束
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def build_system_prompt(
     3. AGENTS.md content (项目级指令)
 
     Args:
-        mode: "base" (P1) | "enhanced" (P3+)
+        mode: "base" | "enhanced"
         cwd: 当前工作目录
         env_info: 环境信息字符串
         agents_md: AGENTS.md 文件内容

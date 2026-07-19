@@ -1,6 +1,6 @@
 """E 层: 文件系统桥接.
 
-设计文档要求:
+接口策略:
 - FsBridge 抽象层: 文件操作后端无关化
 - 统一接口: stat / read / write / rename
 - 后端可替换 (Local / Docker / SSH), 工具层无需感知差异

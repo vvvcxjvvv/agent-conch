@@ -1,6 +1,6 @@
 """E 层: Docker 沙箱后端.
 
-设计文档要求:
+隔离策略:
 - DockerBackend: 容器级隔离执行
 - hard_reset: 容器重置 (docker commit 快照 + restore)
 - DockerFsBridge: 容器内文件操作 (通过 docker cp / docker exec)
@@ -194,7 +194,6 @@ class DockerBackend(SandboxBackend):
     async def hard_reset(self, session_id: str) -> bool:
         """硬重置: 销毁当前容器, 从镜像创建新容器.
 
-        设计文档要求: Docker commit 快照 + restore.
         重置不保留运行时文件；需要保留状态时应先调用 snapshot。
         """
         await self._remove_container(session_id)

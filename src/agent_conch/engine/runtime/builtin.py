@@ -10,7 +10,7 @@ class BuiltinConchRuntime(AgentRuntime):
     """内置 Conch Runtime.
 
     使用 AgentLoop 的标准 Observe-Think-Act 循环.
-    所有 P1 核心工具都可用.
+通过 ToolRegistry 提供核心工具。
     """
 
     def __init__(self, config: RuntimeConfig, agent_loop: AgentLoop):

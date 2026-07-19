@@ -1,6 +1,6 @@
 """C 层: 可插拔 Context Engine.
 
-设计文档要求:
+策略:
 - ContextEngine ABC: 统一管理上下文组装、压缩、记忆检索和回合后维护
 - 不同任务可替换策略 (代码/研究/运维) 而不改 Agent 执行循环
 - LegacyEngine: 内置 fallback 引擎, 始终可用
@@ -106,7 +106,7 @@ class ContextEngine(ABC):
 class LegacyEngine(ContextEngine):
     """内置 fallback Context Engine.
 
-    P1 行为的封装: 直接从 SessionDB 加载消息, 不做压缩.
+    基础实现直接从 SessionDB 加载消息，不执行压缩。
     作为所有自定义引擎的 fallback, 始终可用.
     """
 
@@ -244,8 +244,7 @@ class LegacyEngine(ContextEngine):
 class SimpleTokenCounter:
     """简单 token 计数器.
 
-    P1/P2 使用近似估算 (4 chars ≈ 1 token).
-    P3 可替换为 tiktoken 精确计数.
+    默认使用近似估算（4 chars ≈ 1 token），可替换为 tiktoken 精确计数。
     """
 
     CHARS_PER_TOKEN = 4

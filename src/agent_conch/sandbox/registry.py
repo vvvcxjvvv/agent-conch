@@ -1,6 +1,6 @@
 """E 层: 沙箱后端注册表.
 
-设计文档要求:
+选择策略:
 - SandboxRegistry: 根据 sandbox.mode 决定后端
 - mode: "non-main" (非主会话用沙箱) | "always" | "never"
 - 可插拔: 注册不同后端 (local/docker/ssh)
@@ -30,7 +30,7 @@ class SandboxRegistry:
         self._backends: dict[str, SandboxBackend] = {}
         self._default_backend_name = "local"
 
-        # P1: 默认注册 LocalBackend
+        # 始终注册 LocalBackend 作为回退后端。
         self.register("local", LocalBackend())
 
     def register(self, name: str, backend: SandboxBackend) -> None:
@@ -42,20 +42,20 @@ class SandboxRegistry:
 
         根据 mode 和 is_main 决定:
         - NEVER: 始终返回 local (无隔离)
-        - ALWAYS: 始终返回隔离后端 (P1 退化为 local)
-        - NON_MAIN: 主会话返回 local, 子会话返回隔离后端 (P1 退化为 local)
+        - ALWAYS: 始终返回默认隔离后端，缺失时回退 local
+        - NON_MAIN: 主会话返回 local，子会话返回默认隔离后端
         """
         if self.mode == SandboxMode.NEVER:
             return self._backends["local"]
 
         if self.mode == SandboxMode.ALWAYS:
-            # P1: 只有 local, P2 优先返回 docker
+            # 默认后端不可用时回退 local。
             return self._backends.get(self._default_backend_name, self._backends["local"])
 
         # NON_MAIN
         if is_main:
             return self._backends["local"]
-        # 子会话用沙箱 — P1 退化为 local
+        # 子会话使用默认沙箱；未配置时回退 local。
         return self._backends.get(self._default_backend_name, self._backends["local"])
 
     def set_default(self, name: str) -> None:

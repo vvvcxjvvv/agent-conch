@@ -1,6 +1,6 @@
 """CLI 入口.
 
-设计文档要求:
+策略:
 - CLI: conch run / conch replay
 - 使用 click 框架 + rich 终端渲染
 """
@@ -297,7 +297,7 @@ def serve(
     host: str | None,
     port: int | None,
 ) -> None:
-    """Serve the P3 HTTP API and SSE endpoints."""
+    """Serve HTTP API and SSE endpoints."""
     import uvicorn
 
     from agent_conch.engine.conch_engine import ConchEngine

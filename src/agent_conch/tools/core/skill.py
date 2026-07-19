@@ -20,8 +20,7 @@ class SkillInput(BaseModel):
 class SkillTool(BaseTool):
     """Skill 调用工具.
 
-    P1: 简化版 — 列出/加载 SKILL.md 文件.
-    P2: 完整 SkillRegistry + Schema-based selective injection.
+    工具负责列出和加载 SKILL.md；选择性注入由 SkillRegistry 完成。
     """
 
     name = "skill"

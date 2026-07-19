@@ -18,7 +18,7 @@ class WebSearchInput(BaseModel):
 class WebSearchTool(BaseTool):
     """Web 搜索工具.
 
-    P1: 使用 httpx 调用搜索 API.
+使用 httpx 调用搜索 API。
     默认使用 DuckDuckGo HTML 搜索 (无需 API key).
     """
 

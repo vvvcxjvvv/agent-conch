@@ -1,11 +1,11 @@
 """S 层: SQLite 会话状态存储.
 
-设计文档要求:
+存储策略:
 - SQLite 优先, 所有运行时状态外置到 DB, 不依赖模型记忆
 - 不用 JSON/JSONL/sidecar 文件做运行时状态
 - 支持结构化查询和恢复能力
 
-P1 阶段基础表: sessions / messages / turns / trajectories
+基础表：sessions、messages、turns、trajectories。
 """
 
 from __future__ import annotations
@@ -119,7 +119,7 @@ class SessionDB:
     asyncio.to_thread 调用。这样设计的理由:
     1. sqlite3 stdlib 零依赖, 部署简单
     2. SQLite 单写者模型, 无需复杂并发控制
-    3. P2/P3 可平滑切换到 aiosqlite
+    3. 可平滑切换到 aiosqlite
     """
 
     def __init__(self, db_path: str | Path):

@@ -117,7 +117,7 @@ class TestSessionDB:
         assert db.count_messages("test-008") == 3
 
     def test_persistence_across_connections(self, temp_db: str):
-        """验证 SQLite 持久化 — 设计文档验证标准之一."""
+        """验证 SQLite 数据可跨连接恢复。"""
         db1 = SessionDB(temp_db)
         db1.create_session("persist-test", cwd="/test")
         db1.add_message("persist-test", "user", "persistent message")

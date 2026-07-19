@@ -1,12 +1,12 @@
 """G 层: 敏感路径硬编码.
 
-设计文档要求:
+保护策略:
 - SENSITIVE_PATH_PATTERNS: 硬编码不可覆盖
 - 用户规则叠加 (不能覆盖硬编码)
 - platform 适配 (Unix + Windows)
 - 与 PathValidator 集成
 
-P1 实现中 PathValidator 已内嵌敏感路径, P2 抽离为独立模块.
+敏感路径规则独立维护，并由 PathValidator 使用。
 """
 
 from __future__ import annotations

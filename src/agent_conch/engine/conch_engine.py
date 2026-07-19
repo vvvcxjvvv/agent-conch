@@ -1,6 +1,6 @@
 """L 层: ConchEngine — 顶层编排器.
 
-设计文档要求:
+职责:
 - ConchEngine: 交互编排器, 组装所有子系统
 - 统一入口: run() / replay()
 
@@ -105,7 +105,7 @@ class ConchEngine:
 
         self.checkpoint_manager = CheckpointManager(self.session_db)
 
-        # === O/V/G/S 层: 可观测、验证与 P4 治理 ===
+        # === O/V/G/S 层：可观测、验证、治理与状态 ===
         self.trace_store = TraceStore(self.session_db)
         self.decision_trace_store = DecisionTraceStore(self.session_db)
         self.otel_tracer = OTelTracer(self.trace_store)
@@ -249,7 +249,7 @@ class ConchEngine:
             agents_md=agents_md,
         )
 
-        # === C 层: Context Engine + 压缩 + Caching + Skill + Memory (P2) ===
+        # === C 层：Context Engine、压缩、Caching、Skill 与 Memory ===
         from agent_conch.context.compact.pipeline import ContextCompressor
         from agent_conch.context.engine import (
             LegacyEngine,
@@ -310,7 +310,7 @@ class ConchEngine:
             ),
         )
 
-        # === L 层: Subagent (P2) ===
+        # === L 层：Subagent ===
         from agent_conch.multiagent.subagent import SubagentManager
 
         self.subagent_manager = SubagentManager(self.session_db)

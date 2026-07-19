@@ -1,10 +1,10 @@
 """S 层: 轨迹持久化与回放.
 
-设计文档要求:
+记录策略:
 - Trajectory JSONL 每步保存 + conch replay 回放
 - SQLite 保存运行时状态(可查询), JSONL 导出用于审计/回放
 
-P1: 基础轨迹存储 + JSONL 导出 + 简单回放
+轨迹同时保存到 SQLite，并可导出 JSONL 供审计和回放。
 """
 
 from __future__ import annotations

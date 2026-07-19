@@ -229,4 +229,4 @@ class WriteApprovalStore:
 
 
 class ApprovalStore(WriteApprovalStore):
-    """兼容 P3 API 名称；实现已升级为 WriteApproval。"""
+    """兼容旧 API 名称；实现使用 WriteApproval。"""

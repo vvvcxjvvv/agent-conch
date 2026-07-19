@@ -104,7 +104,7 @@ class TestToolRegistry:
         assert record.status == "error"
 
     async def test_transient_failure_suppression(self):
-        """测试瞬态故障抑制 — 设计文档要求."""
+        """测试连续失败后的瞬态故障抑制。"""
         registry = ToolRegistry(transient_suppress=60)
         registry.register(FailingTool())
 

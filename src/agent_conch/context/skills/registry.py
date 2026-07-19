@@ -1,6 +1,6 @@
 """C 层: Skill 体系 — SkillLoader + SkillInjector.
 
-设计文档要求:
+加载与注入策略:
 - SKILL.md + YAML frontmatter (agentskills.io 兼容标准)
 - 多层级加载 (Bundled → User → Project → Plugin)
 - Schema-based selective injection: 基于 inject_schema 选择性注入章节

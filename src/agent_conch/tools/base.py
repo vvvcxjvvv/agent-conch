@@ -1,6 +1,6 @@
 """T 层: 工具基类与数据模型.
 
-设计文档要求:
+接口策略:
 - BaseTool: 统一工具接口
 - Pydantic input_model 参数 Schema 校验
 - JSON Schema 自动生成给 LLM

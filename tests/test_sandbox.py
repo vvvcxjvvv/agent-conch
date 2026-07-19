@@ -153,7 +153,7 @@ class TestLocalBackend:
         assert await backend.is_available()
 
     async def test_run_python_test(self, backend: LocalBackend, tmp_workspace: Path):
-        """验证可以运行 pytest — 设计文档验证标准之一."""
+        """验证沙箱后端可以运行 pytest。"""
         import sys
 
         python_exe = sys.executable

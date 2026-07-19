@@ -206,7 +206,7 @@ class TestBashTool:
         assert result.metadata["exit_code"] == 42
 
     async def test_bash_run_tests(self, setup):
-        """验证能运行测试 — 设计文档验证标准之一."""
+        """验证 bash 工具可以运行测试命令。"""
         import sys
 
         python_exe = sys.executable

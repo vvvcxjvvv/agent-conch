@@ -1,6 +1,6 @@
 """C 层: 渐进式上下文压缩 — 三步管线.
 
-设计文档要求:
+策略:
 - Step 1: 清理旧工具结果 (零 LLM 调用) — 替换为 [Old tool result content cleared]
 - Step 2: 折叠超长内容 (零 LLM 调用) — head 900 chars + tail 500 chars
 - Step 3: 摘要归档 (LLM 结构化摘要) — Historical Task / In-Progress / Pending Asks / Remaining Work

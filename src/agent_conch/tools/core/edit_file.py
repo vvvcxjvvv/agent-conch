@@ -22,7 +22,7 @@ class EditFileInput(BaseModel):
 class EditFileTool(BaseTool):
     """文件编辑工具 (字符串替换).
 
-    设计文档要求: str_replace 方式编辑文件.
+    通过精确字符串替换编辑文件。
     """
 
     name = "edit_file"

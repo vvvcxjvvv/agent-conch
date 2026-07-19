@@ -1,4 +1,4 @@
-"""P3 HTTP API 与 SSE 入口。"""
+"""HTTP API 与 SSE 入口。"""
 
 from agent_conch.api.server import create_app
 

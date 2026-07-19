@@ -1,6 +1,6 @@
 """L 层: Layer 插件体系基础框架.
 
-设计文档要求:
+接口策略:
 - Layer 接口: on_graph_start / on_node_run_start / on_node_run_end / on_event / on_graph_end
 - 横切能力: 配额/可观测/暂停恢复/验证/策略
 - 不同部署场景按需启用不同 Layer

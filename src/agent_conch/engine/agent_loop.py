@@ -1,16 +1,13 @@
 """L 层: Agent Loop — Observe-Think-Act 循环.
 
-设计文档要求:
+执行策略:
 - AgentLoop: 核心执行循环
 - forward_with_handling: 错误降级
 - 并行工具执行: asyncio.gather
 - Layer 钩子集成
 - 轨迹记录
 
-P1 简化:
-- 上下文直接从 SessionDB 加载 (P2 接入 Context Engine)
-- 不做 Prompt Caching (P2)
-- 不做 auto-compact (P2)
+上下文由 Context Engine 组装；不可用时直接从 SessionDB 加载。
 """
 
 from __future__ import annotations
@@ -80,7 +77,7 @@ class AgentLoop:
         self.system_prompt = system_prompt
         self.sandbox_mode = sandbox_mode
         self.error_classifier = ErrorClassifier()
-        # P2: Context Engine + Prompt Caching
+        # Context Engine 与 Prompt Caching
         self.context_engine = context_engine
         self.prompt_caching = prompt_caching
         self.event_sink = event_sink
@@ -137,7 +134,7 @@ class AgentLoop:
                 model_name=self.config.model_name,
             )
 
-        # P2: Context Engine bootstrap
+        # 初始化上下文引擎。
         if self.context_engine is not None:
             await self.context_engine.bootstrap(session_id)
 
@@ -199,7 +196,7 @@ class AgentLoop:
             turn_id = self.db.start_turn(session_id, turn_count)
             turn_start = time.time()
 
-            # P2: Context Engine maintain (auto-compact check)
+            # 维护上下文并检查是否需要自动压缩。
             if self.context_engine is not None:
                 await self.context_engine.maintain(session_id)
 
@@ -533,7 +530,6 @@ class AgentLoop:
     async def forward_with_handling(self, session_id: str) -> LLMResponse | None:
         """LLM 调用 + 错误降级.
 
-        设计文档要求: forward_with_handling 错误降级.
         流程:
         1. 尝试调用 LLM
         2. 失败 → ErrorClassifier 分类
@@ -577,11 +573,10 @@ class AgentLoop:
     async def _call_model(self, session_id: str) -> LLMResponse:
         """调用 LLM (通过 litellm).
 
-        P2: 通过 Context Engine 组装上下文 + Prompt Caching.
-        P1 fallback: 直接从 DB 加载消息.
+        优先通过 Context Engine 组装上下文并应用 Prompt Caching；不可用时直接从 DB 加载消息。
         """
         messages: list[dict[str, Any]]
-        # P2: 使用 Context Engine 组装上下文
+        # 使用 Context Engine 组装上下文。
         if self.context_engine is not None:
             from agent_conch.context.engine import TokenBudget
 
@@ -592,14 +587,14 @@ class AgentLoop:
             assembled = await self.context_engine.assemble(session_id, budget)
             messages = assembled.messages
         else:
-            # P1 fallback: 直接从 DB 加载
+            # 回退为直接从 DB 加载。
             messages = []
             if self.system_prompt:
                 messages.append({"role": "system", "content": self.system_prompt})
             db_messages = self.db.get_messages_as_dicts(session_id)
             messages.extend(db_messages)
 
-        # P2: 应用 Prompt Caching
+        # 应用 Prompt Caching。
         if self.prompt_caching is not None:
             messages = self.prompt_caching.apply(messages)
 
@@ -673,7 +668,6 @@ class AgentLoop:
     ) -> list[ToolExecutionRecord]:
         """并行执行工具调用.
 
-        设计文档要求: asyncio.gather(return_exceptions=True) 并行.
         只用于互不依赖的操作; 写操作和危险操作仍需串行或进入审批.
         """
         # 分离写操作和读操作

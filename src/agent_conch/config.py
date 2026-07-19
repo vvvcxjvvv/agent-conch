@@ -1,6 +1,6 @@
 """配置加载: 解析 conch.yaml 并合并默认值.
 
-设计文档要求: YAML 驱动 Agent 行为配置。
+使用 YAML 驱动 Agent 行为配置。
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ class VerificationConfig:
 
 @dataclass
 class ApiConfig:
-    """P3 HTTP API 与 Web Console 服务配置。"""
+    """HTTP API 与 Web Console 服务配置。"""
 
     host: str = "127.0.0.1"
     port: int = 8765
@@ -145,7 +145,7 @@ class ApiConfig:
 
 @dataclass
 class GovernanceConfig:
-    """P4 RBAC、PolicyEngine 与 WriteApproval 配置。"""
+    """RBAC、PolicyEngine 与 WriteApproval 配置。"""
 
     enabled: bool = True
     default_role: str = "admin"

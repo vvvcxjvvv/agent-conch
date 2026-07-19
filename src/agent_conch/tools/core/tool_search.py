@@ -19,7 +19,6 @@ class ToolSearchInput(BaseModel):
 class ToolSearchTool(BaseTool):
     """工具搜索工具.
 
-    设计文档要求: ToolSearch 渐进发现.
     非核心工具通过此工具被 Agent 发现.
     """
 

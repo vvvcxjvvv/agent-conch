@@ -1,6 +1,6 @@
 """T 层: Footprint Ladder 六级扩展阶梯.
 
-设计文档要求:
+扩展策略:
 - 控制核心工具膨胀
 - 扩展优先级: 扩展现有代码 → CLI+Skill → service-gated → plugin → MCP → 新核心工具
 """
@@ -54,7 +54,7 @@ class FootprintLadder:
         self, needed_capability: str, existing_tools: list[str] | None = None
     ) -> FootprintSuggestion:
         """评估新能力的扩展建议."""
-        # P1: 简化逻辑, 实际应根据能力描述做语义匹配
+        # 通过关键词匹配选择扩展级别。
         capability_lower = needed_capability.lower()
 
         # 如果现有工具能覆盖 (文件/搜索/执行相关)

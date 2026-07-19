@@ -1,11 +1,11 @@
 """S 层: 快照/恢复管理 — Checkpoint / Pause / Resume.
 
-设计文档要求:
+持久化策略:
 - 完整状态序列化到 SQLite: GraphRuntimeState + generate_entity
 - 支持长时间暂停后恢复 (等待人工审批)
 - 序列化 → 恢复时反序列化重建
 
-P2: 完整实现 Pause/Resume 状态持久化.
+Pause/Resume 状态完整持久化到 SQLite。
 """
 
 from __future__ import annotations

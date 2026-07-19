@@ -1,6 +1,6 @@
 """T 层: 工具策略控制.
 
-设计文档要求:
+策略:
 - ToolPolicy: Allow/Deny + Sender Policy + Sandbox Policy 三层
 - 读、写、执行、网络、部署操作分级管控
 """

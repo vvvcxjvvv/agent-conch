@@ -1,7 +1,7 @@
 """E 层: 沙箱后端抽象 + LocalBackend.
 
-设计文档要求:
-- SandboxRegistry 可插拔: Local + Docker(P2) + SSH(P2)
+执行策略:
+- SandboxRegistry 可插拔：Local、Docker 与 SSH
 - Local: 开发/个人场景, 默认信任
 - 命令执行 + 文件操作统一通过后端
 """

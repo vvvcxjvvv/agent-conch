@@ -1,6 +1,6 @@
 """Prompt: AGENTS.md 发现.
 
-设计文档要求:
+查找策略:
 - 从 cwd 向上遍历发现 AGENTS.md
 - 类似 .git 目录的查找方式
 """

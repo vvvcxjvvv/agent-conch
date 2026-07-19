@@ -1,4 +1,4 @@
-"""P3 Webhook / HTTP API / SSE 服务。"""
+"""Webhook、HTTP API 与 SSE 服务。"""
 
 from __future__ import annotations
 

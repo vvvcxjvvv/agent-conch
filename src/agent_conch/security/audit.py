@@ -1,4 +1,4 @@
-"""G 层：P3 安全审计与 Dangerous Config Detection。"""
+"""G 层：安全审计与危险配置检测。"""
 
 from __future__ import annotations
 

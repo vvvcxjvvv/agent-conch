@@ -1,6 +1,6 @@
 """L 层: Subagent 管理 + 孤儿恢复.
 
-设计文档要求:
+管理策略:
 - SQLite 持久化注册表
 - 父 Agent 崩溃后恢复子 Agent (孤儿恢复)
 - Delegation: 子 Agent 委托执行

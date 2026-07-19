@@ -1,6 +1,6 @@
 """L 层: Agent Runtime 可插拔抽象.
 
-设计文档要求:
+运行时策略:
 - AgentRuntime: 允许不同类型的 Agent 执行器接入统一控制面
 - RuntimeRegistry: 注册和选择 runtime
 - 通用 Harness 不绑定单一 Agent 循环

@@ -1,6 +1,6 @@
 """C 层: Prompt Caching.
 
-设计文档要求:
+缓存策略:
 - system_and_3 策略: 4 个 cache_control 断点
   1. system prompt 末尾
   2-4. 最后 3 条非 system 消息

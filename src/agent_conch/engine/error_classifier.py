@@ -1,12 +1,11 @@
 """L 层: ErrorClassifier — 错误分类与恢复策略.
 
-设计文档要求:
+恢复策略:
 - 20+ 种错误分类
 - 返回错误类型 + 恢复策略 (retry/requery/compact/abort)
 - forward_with_handling 错误降级
 
-P1: 实现基础错误分类 (15 种)
-P2: 扩展到 25 种
+错误分类覆盖 API、上下文、工具、权限和运行时故障。
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from enum import Enum
 
 
 class FailoverReason(str, Enum):
-    """错误类型 (P2: 25 种)."""
+    """错误类型。"""
 
     # === API 错误 (10) ===
     API_TIMEOUT = "api_timeout"
@@ -153,7 +152,7 @@ class ErrorClassifier:
     def classify(self, error: Exception) -> ClassifiedError:
         """分类错误.
 
-        P2: 扩展到 25 种错误类型, 更精细的匹配.
+        按错误消息执行更细粒度的匹配。
         """
         error_msg = str(error).lower()
         error_type = type(error).__name__.lower()
