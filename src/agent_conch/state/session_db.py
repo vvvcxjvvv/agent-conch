@@ -183,6 +183,24 @@ class SessionDB:
             metadata=json.loads(row["metadata"]),
         )
 
+    def list_sessions(self, limit: int = 100) -> list[Session]:
+        rows = self.conn.execute(
+            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+        return [
+            Session(
+                id=row["id"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                status=row["status"],
+                cwd=row["cwd"],
+                model_name=row["model_name"],
+                metadata=json.loads(row["metadata"]),
+            )
+            for row in rows
+        ]
+
     def update_session_status(self, session_id: str, status: str) -> None:
         self.conn.execute(
             "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",

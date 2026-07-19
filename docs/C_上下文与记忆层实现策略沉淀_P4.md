@@ -30,3 +30,7 @@ SkillCurator 从 SkillLoader 结果中筛选 `agent_created && !pinned`：deprec
 ## 六、演进与优化方向
 
 增加 LLM proposal generator、静态校验与回归门禁后再允许 apply；补 improve/consolidate 的更多文件系统异常和回滚测试。
+
+## 七、设计缺口闭环增量（2026-07-19）
+
+超长工具结果先由 ToolOutputManager 缩为固定预览再进入 Agent 上下文，完整内容作为私有制品引用，降低无界工具输出挤占上下文窗口的风险。Skill 清单与 frontmatter 通过只读 RBAC API 暴露，资源控制台可观察加载结果但不能绕过 Curator/WriteApproval 修改 Skill。

@@ -31,3 +31,10 @@ ToolRegistry 为 session 绑定 `(principal, role, sender)`，执行顺序为：
 ## 六、演进与优化方向
 
 把 action 推断从工具属性扩展为工具声明的显式风险描述；增加按参数动态风险评分和 ToolRegistry 并发身份上下文隔离的压力测试。
+
+## 七、设计缺口闭环增量（2026-07-19）
+
+- 新增 MCPClient 与 MCPToolAdapter：stdio 连接初始化、工具发现、动态 Registry 注册、调用、错误状态和关闭清理均已闭环。
+- 新增 ToolOutputManager：超过阈值的结果保存为权限 `0600` 的制品，只向模型返回受控预览和制品引用。
+- ToolRegistry 在执行后按“内容脱敏 → 输出 offload”处理，MCP 工具继续复用现有 RBAC、PolicyEngine、审批和预算链。
+- Web 资源控制台提供 Tool health/schema 与 MCP 状态/刷新入口；对应 Python 测试、Vitest 和 Playwright E2E 通过。

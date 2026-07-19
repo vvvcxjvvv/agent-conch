@@ -25,8 +25,12 @@ VerificationLayer 在报告失败时调用 RegressionStore.capture；用 command
 
 ## 五、验证与覆盖情况
 
-验证失败报告两次 capture 只产生一个 case；模拟命令成功后 pass_rate=1.0 且 gate_passed=true。P4 专项和全量 200 个 Python 测试通过；浏览器 E2E 未覆盖。
+验证失败报告两次 capture 只产生一个 case；模拟命令成功后 pass_rate=1.0 且 gate_passed=true。P4 专项、全量 209 个 Python 测试、Vitest 和 Playwright Chromium E2E 通过。
 
 ## 六、演进与优化方向
 
-增加 case 标签、依赖环境、并行执行、flaky 隔离和历史趋势；将 Web/Electron E2E、真实 Docker 快照、vault 冒烟纳入多类型回归门禁。
+增加 case 标签、依赖环境、并行执行、flaky 隔离和历史趋势；将 Electron 启动冒烟、真实 Docker/SSH/gVisor、vault 和签名公证纳入环境型回归门禁。
+
+## 七、设计缺口闭环增量（2026-07-19）
+
+新增 9 个设计缺口测试，覆盖网络白名单、内容安全、长输出 offload、Hook fail-closed、MCP adapter/真实 stdio 往返、gVisor 参数、SSH 安全配置和管理 API；Web 增加 ResourceConsole Vitest 与 Playwright E2E；Electron 可分发目录构建通过。真实外部环境验收不以模拟测试替代，继续单列为发布门禁。

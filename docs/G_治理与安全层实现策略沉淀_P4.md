@@ -33,3 +33,10 @@ RBAC 将权限集合绑定内置角色；PolicyEngine 依次执行 RBAC、声明
 ## 六、演进与优化方向
 
 增加自定义角色持久化、规则版本/审计、审批过期和双人复核；vault resolver 增加缓存 TTL 与健康检查；生产环境接入集中策略和密钥服务 adapter。
+
+## 七、设计缺口闭环增量（2026-07-19）
+
+- ContentSafetyGuard 已进入 PolicyEngine：网络/部署动作包含私钥、Bearer、API key、AWS key 或赋值型 secret 时直接拒绝。
+- 工具结果、结构化 metadata 与最终回答统一脱敏；SecurityAudit 新增 SSH host key、空网络白名单和关闭内容安全检测。
+- 网络白名单支持 HTTP(S) scheme、主机通配符与 CIDR；默认关闭以兼容既有配置，启用后默认拒绝未列入目标。
+- `bw`/`op` resolver 已实现但当前机器未安装相应 CLI，真实 vault 登录态验收仍为外部依赖项。

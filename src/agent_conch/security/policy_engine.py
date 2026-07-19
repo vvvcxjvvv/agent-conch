@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from agent_conch.security.content_safety import ContentSafetyGuard
 from agent_conch.security.permissions import RBAC, ActionLevel, Permission
 
 
@@ -122,24 +123,36 @@ class PolicyEngine:
         rbac: RBAC | None = None,
         rules: list[GovernanceRule] | None = None,
         approval_level: ActionLevel = ActionLevel.ADMIN,
+        content_guard: ContentSafetyGuard | None = None,
     ) -> None:
         self.rbac = rbac or RBAC()
         self.rules = list(rules) if rules is not None else list(DEFAULT_GOVERNANCE_RULES)
         self.approval_level = approval_level
+        self.content_guard = content_guard
 
     @classmethod
     def from_config(
         cls,
         rules: list[dict[str, Any]] | None = None,
         approval_level: int = int(ActionLevel.ADMIN),
+        content_guard: ContentSafetyGuard | None = None,
     ) -> PolicyEngine:
         configured = [GovernanceRule.from_dict(item) for item in (rules or [])]
-        return cls(rules=[*DEFAULT_GOVERNANCE_RULES, *configured], approval_level=ActionLevel(approval_level))
+        return cls(
+            rules=[*DEFAULT_GOVERNANCE_RULES, *configured],
+            approval_level=ActionLevel(approval_level),
+            content_guard=content_guard,
+        )
 
     def evaluate(self, request: PolicyRequest) -> PolicyResult:
         authorization = self.rbac.authorize(request.role, request.permission)
         if not authorization.allowed:
             return PolicyResult(PolicyEffect.DENY, authorization.reason, "rbac")
+
+        if self.content_guard is not None:
+            safety = self.content_guard.evaluate_arguments(request.arguments, request.action)
+            if not safety.allowed:
+                return PolicyResult(PolicyEffect.DENY, safety.reason, "content_safety")
 
         for rule in self.rules:
             if rule.matches(request):
@@ -156,6 +169,7 @@ class PolicyEngine:
     def describe(self) -> dict[str, Any]:
         return {
             "approval_level": int(self.approval_level),
+            "content_safety": self.content_guard is not None and self.content_guard.enabled,
             "roles": self.rbac.roles(),
             "rules": [
                 {

@@ -34,13 +34,34 @@ class SecurityAudit:
                     "sandbox.mode",
                 )
             )
-        if sandbox.get("default_backend") == "docker" and sandbox.get("network") == "host":
+        docker = sandbox.get("docker") or {}
+        if sandbox.get("default_backend") == "docker" and docker.get("network") == "host":
             findings.append(
                 AuditFinding(
                     "DOCKER_HOST_NETWORK",
                     "high",
                     "Docker host networking weakens isolation",
-                    "sandbox.network",
+                    "sandbox.docker.network",
+                )
+            )
+        ssh = sandbox.get("ssh") or {}
+        if sandbox.get("default_backend") == "ssh" and not ssh.get("strict_host_key", True):
+            findings.append(
+                AuditFinding(
+                    "SSH_HOST_KEY_DISABLED",
+                    "high",
+                    "SSH strict host key verification is disabled",
+                    "sandbox.ssh.strict_host_key",
+                )
+            )
+        network_policy = sandbox.get("network_policy") or {}
+        if network_policy.get("enforce") and not network_policy.get("allowlist"):
+            findings.append(
+                AuditFinding(
+                    "EMPTY_NETWORK_ALLOWLIST",
+                    "medium",
+                    "Network policy blocks all outbound web tool requests",
+                    "sandbox.network_policy.allowlist",
                 )
             )
         allowed_roots = sandbox.get("allowed_roots") or []
@@ -66,6 +87,16 @@ class SecurityAudit:
             )
 
         layers = set((config.get("layers") or {}).get("enabled") or [])
+        governance = config.get("governance") or {}
+        if governance.get("enabled") and not governance.get("content_safety_enabled", True):
+            findings.append(
+                AuditFinding(
+                    "CONTENT_SAFETY_DISABLED",
+                    "high",
+                    "Governance is enabled while content safety is disabled",
+                    "governance.content_safety_enabled",
+                )
+            )
         verification = config.get("verification") or {}
         if "verification" in layers and not verification.get("commands"):
             findings.append(

@@ -29,6 +29,8 @@ tools:
   transient_suppress: 60
   # 并行工具执行
   parallel_execution: true
+  output_max_chars: 20000      # 超长工具输出落盘上限
+  output_preview_chars: 4000   # 返回模型的预览长度
 
 # === 沙箱配置 ===
 sandbox:
@@ -42,6 +44,25 @@ sandbox:
     - "~/.config"
   # 工作目录限制
   allowed_roots: []            # 空 = 当前工作目录
+  docker:
+    image: "python:3.12-slim"
+    memory_limit: "512m"
+    cpu_limit: "1.0"
+    network: "none"
+    runtime: ""                # 使用 gVisor 时配置为 runsc
+    volumes: []
+  ssh:
+    host: ""
+    user: ""
+    port: 22
+    identity_file: ""
+    strict_host_key: true
+    connect_timeout: 10
+    work_dir: "."
+    allowed_roots: []
+  network_policy:
+    enforce: false
+    allowlist: []               # 支持域名通配符与 CIDR
 
 # === 状态存储配置 ===
 state:
@@ -69,6 +90,17 @@ governance:
   default_role: "admin"
   approval_level: 4            # 1 只读 / 2 写 / 3 执行 / 4 管理 / 5 关键
   policy_rules: []             # 支持 roles/senders/tools/actions/minimum_level/argument_contains
+  content_safety_enabled: true
+  redact_sensitive: true
+  denied_content_patterns: []
+
+mcp:
+  enabled: true
+  servers: []                  # {name, command, args, env, cwd, enabled}
+
+hooks:
+  enabled: true
+  commands: []                 # {name, event, command, timeout, fail_closed, cwd, env}
 
 budget:
   max_tokens: 200000

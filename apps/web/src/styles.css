@@ -196,6 +196,29 @@ pre { margin: 0; padding: 12px 14px 14px 47px; overflow: auto; border-top: 1px s
 .governance-actions button:hover { border-color: rgba(34,211,238,.36); background: rgba(34,211,238,.16); }
 .governance-actions button:disabled { opacity: .45; cursor: wait; }
 
+.resource-console { display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 9px; height: 555px; padding: 12px; }
+.console-column { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,.014); }
+.console-column > header { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 10px 11px; border-bottom: 1px solid var(--border); }
+.console-column header small { color: #5f6877; font: 7px DM Mono, monospace; }
+.console-column header h3 { margin: 3px 0 0; color: #dce3e9; font-size: 10px; }
+.console-column header b, .console-column header button { padding: 4px 7px; border: 1px solid rgba(34,211,238,.2); border-radius: 7px; color: #71e3f2; background: var(--accent-soft); font: 7px DM Mono, monospace; }
+.console-column header button { cursor: pointer; }
+.session-list { display: flex; gap: 6px; padding: 8px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.session-list button { display: grid; flex: 0 0 135px; gap: 3px; padding: 8px; text-align: left; border: 1px solid var(--border); border-radius: 8px; color: #9ca6b2; background: #0a0e15; cursor: pointer; }
+.session-list button.active { border-color: rgba(34,211,238,.45); background: var(--accent-soft); }
+.session-list strong { color: #d6dde4; font: 8px DM Mono, monospace; }
+.session-list span, .session-list small { color: #697381; font-size: 7px; }
+.chat-history, .resource-list { display: grid; align-content: start; gap: 7px; max-height: 430px; padding: 9px; overflow: auto; }
+.chat-history article { padding: 8px; border-radius: 8px; background: rgba(255,255,255,.025); }
+.chat-history article.chat-assistant { border-left: 2px solid var(--accent); }
+.chat-history article.chat-user { border-left: 2px solid #34d399; }
+.chat-history small { color: #5f6877; font: 7px DM Mono, monospace; text-transform: uppercase; }
+.chat-history p { margin: 5px 0 0; color: #aeb7c1; font-size: 8px; line-height: 1.5; white-space: pre-wrap; }
+.resource-list article { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 7px; padding: 9px; border: 1px solid var(--border); border-radius: 8px; background: rgba(5,8,12,.35); }
+.resource-list strong { min-width: 0; overflow: hidden; color: #cdd5dc; font: 8px DM Mono, monospace; text-overflow: ellipsis; }
+.resource-list span { color: #5dd9c8; font: 7px DM Mono, monospace; }
+.resource-list p { grid-column: 1 / -1; margin: 0; overflow: hidden; color: #687280; font-size: 8px; line-height: 1.4; text-overflow: ellipsis; }
+
 .utility-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .side-card { min-height: 115px; padding: 14px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; color: #cfd5dc; font-size: 10px; font-weight: 600; }
@@ -227,6 +250,7 @@ pre { margin: 0; padding: 12px 14px 14px 47px; overflow: auto; border-top: 1px s
   .workbench-grid { grid-template-columns: 1fr; }
   .task-composer { min-height: auto; }
   .governance-grid { grid-template-columns: 1fr; }
+  .resource-console { grid-template-columns: 1fr; height: auto; }
 }
 @media (max-width: 680px) {
   .app-shell { display: block; }

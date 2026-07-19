@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import fnmatch
+import posixpath
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_conch.sandbox.fs_bridge import FsBridge, LocalFsBridge
 from agent_conch.sandbox.path_validator import PathValidator
 from agent_conch.tools.base import BaseTool, ToolResult
 
@@ -32,27 +34,49 @@ class GlobTool(BaseTool):
     is_core = True
     tags = ["file", "search", "pattern"]
 
-    def __init__(self, validator: PathValidator):
-        self.validator = validator
+    def __init__(self, fs: FsBridge | PathValidator):
+        self.fs = LocalFsBridge(fs) if isinstance(fs, PathValidator) else fs
+
+    async def _walk(self, base: str, relative: str = "") -> list[tuple[str, float]]:
+        current = posixpath.join(base, relative) if relative else base
+        entries: list[tuple[str, float]] = []
+        for name in sorted(await self.fs.list_dir(current)):
+            rel_path = posixpath.join(relative, name) if relative else name
+            full_path = posixpath.join(base, rel_path)
+            info = await self.fs.stat(full_path)
+            entries.append((rel_path, info.modified_time))
+            if info.is_dir:
+                entries.extend(await self._walk(base, rel_path))
+        return entries
+
+    @staticmethod
+    def _matches(path: str, pattern: str) -> bool:
+        patterns = [pattern]
+        while patterns[-1].startswith("**/"):
+            patterns.append(patterns[-1][3:])
+        return any(fnmatch.fnmatch(path, item) for item in patterns)
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         validated = GlobInput(**kwargs)
         try:
-            base = self.validator.validate_or_raise(validated.path, "read")
-            base_path = Path(base)
-            if not base_path.is_dir():
+            base_info = await self.fs.stat(validated.path)
+            if not base_info.is_dir:
                 return ToolResult.error(f"Not a directory: {validated.path}")
 
             matches = sorted(
-                base_path.glob(validated.pattern),
-                key=lambda p: p.stat().st_mtime if p.exists() else 0,
+                (
+                    item
+                    for item in await self._walk(validated.path)
+                    if self._matches(item[0], validated.pattern)
+                ),
+                key=lambda item: item[1],
                 reverse=True,
             )
 
             # 限制结果数量
             max_results = 200
             truncated = len(matches) > max_results
-            result_list = [str(m.relative_to(base_path)) for m in matches[:max_results]]
+            result_list = [path for path, _ in matches[:max_results]]
 
             content = "\n".join(result_list) if result_list else "No matches found."
             if truncated:

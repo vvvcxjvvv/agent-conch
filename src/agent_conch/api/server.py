@@ -109,6 +109,85 @@ def create_app(engine: Any) -> FastAPI:
     async def health() -> dict[str, Any]:
         return {"status": "ok", "tools": engine.get_tool_health()}
 
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        await engine.shutdown_services()
+
+    @app.get("/sessions")
+    async def sessions(
+        limit: int = 100,
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.SESSION_READ)
+        return [asdict(item) for item in engine.session_db.list_sessions(limit)]
+
+    @app.get("/sessions/{session_id}/messages")
+    async def session_messages(
+        session_id: str,
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.SESSION_READ)
+        return [asdict(item) for item in engine.session_db.get_messages(session_id)]
+
+    @app.get("/tools")
+    async def tools(
+        x_conch_role: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.TOOL_READ)
+        return {
+            "schemas": await engine.tool_registry.get_available_schemas(),
+            "health": engine.get_tool_health(),
+        }
+
+    @app.get("/skills")
+    async def skills(
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.SKILL_READ)
+        engine.skills = engine.skill_loader.load_all()
+        return [
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "path": skill.path,
+                "frontmatter": asdict(skill.frontmatter),
+            }
+            for skill in sorted(engine.skills.values(), key=lambda item: item.name)
+        ]
+
+    @app.get("/mcp/servers")
+    async def mcp_servers(
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.TOOL_READ)
+        return cast(list[dict[str, Any]], engine.mcp_client.status())
+
+    @app.post("/mcp/refresh")
+    async def refresh_mcp(
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.TOOL_ADMIN)
+        return cast(list[dict[str, Any]], await engine.refresh_mcp_tools())
+
+    @app.get("/hooks/executions")
+    async def hook_executions(
+        session_id: str = "",
+        limit: int = 100,
+        x_conch_role: str | None = Header(default=None),
+    ) -> list[dict[str, Any]]:
+        _, role = identity(None, x_conch_role)
+        require(role, Permission.AUDIT_READ)
+        return [
+            asdict(item)
+            for item in engine.hook_executor.list_executions(session_id, limit)
+        ]
+
     @app.post("/runs")
     @app.post("/webhooks/run")
     async def run_agent(

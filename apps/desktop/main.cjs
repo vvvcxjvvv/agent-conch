@@ -23,7 +23,10 @@ function createWindow() {
   if (WEB_URL) {
     window.loadURL(WEB_URL);
   } else {
-    window.loadFile(path.join(__dirname, "../web/dist/index.html"));
+    const webRoot = app.isPackaged
+      ? path.join(process.resourcesPath, "web")
+      : path.join(__dirname, "../web/dist");
+    window.loadFile(path.join(webRoot, "index.html"));
   }
 }
 

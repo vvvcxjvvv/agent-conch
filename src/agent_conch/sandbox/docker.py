@@ -29,6 +29,7 @@ class DockerConfig:
     memory_limit: str = "512m"
     cpu_limit: str = "1.0"
     network: str = "none"  # none | bridge | host
+    runtime: str = ""  # gVisor 使用 runsc
     auto_remove: bool = False  # 容器退出后自动删除
     volumes: list[str] = field(default_factory=list)  # 额外挂载
 
@@ -148,6 +149,9 @@ class DockerBackend(SandboxBackend):
         if self.config.auto_remove:
             cmd_parts.append("--rm")
 
+        if self.config.runtime:
+            cmd_parts.extend(["--runtime", self.config.runtime])
+
         for vol in self.config.volumes:
             cmd_parts.extend(["-v", vol])
 
@@ -208,8 +212,11 @@ class DockerBackend(SandboxBackend):
         import uuid
 
         tag = tag or f"conch-snapshot-{str(uuid.uuid4())[:8]}"
-        proc = await asyncio.create_subprocess_shell(
-            f"docker commit {container_id} {tag}",
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "commit",
+            container_id,
+            tag,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

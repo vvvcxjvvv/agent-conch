@@ -50,3 +50,37 @@ export interface GovernanceOverview extends JsonObject {
   coordinator: JsonObject[];
   snapshots: JsonObject[];
 }
+
+export interface Session extends JsonObject {
+  id: string;
+  status: string;
+  updated_at: number;
+  cwd: string;
+}
+
+export interface Message extends JsonObject {
+  id: string | number | null;
+  session_id: string;
+  role: string;
+  content: string;
+  created_at: number;
+}
+
+export interface ToolCatalog extends JsonObject {
+  schemas: Array<{ name: string; description: string; parameters: JsonObject }>;
+  health: Record<string, JsonObject>;
+}
+
+export interface SkillSummary extends JsonObject {
+  name: string;
+  description: string;
+  path: string;
+}
+
+export interface McpServer extends JsonObject {
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  error: string;
+  tools: JsonObject[];
+}

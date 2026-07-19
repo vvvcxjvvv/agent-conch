@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import fnmatch
+import posixpath
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_conch.sandbox.fs_bridge import FsBridge, LocalFsBridge
 from agent_conch.sandbox.path_validator import PathValidator
 from agent_conch.tools.base import BaseTool, ToolResult
 
@@ -39,8 +41,21 @@ class GrepTool(BaseTool):
     is_core = True
     tags = ["file", "search", "content", "regex"]
 
-    def __init__(self, validator: PathValidator):
-        self.validator = validator
+    def __init__(self, fs: FsBridge | PathValidator):
+        self.fs = LocalFsBridge(fs) if isinstance(fs, PathValidator) else fs
+
+    async def _files(self, base: str, relative: str = "") -> list[tuple[str, str]]:
+        current = posixpath.join(base, relative) if relative else base
+        files: list[tuple[str, str]] = []
+        for name in sorted(await self.fs.list_dir(current)):
+            rel_path = posixpath.join(relative, name) if relative else name
+            full_path = posixpath.join(base, rel_path)
+            info = await self.fs.stat(full_path)
+            if info.is_dir:
+                files.extend(await self._files(base, rel_path))
+            elif info.is_file:
+                files.append((full_path, rel_path))
+        return files
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         validated = GrepInput(**kwargs)
@@ -51,38 +66,31 @@ class GrepTool(BaseTool):
             return ToolResult.error(f"Invalid regex pattern: {e!s}")
 
         try:
-            base = self.validator.validate_or_raise(validated.path, "read")
-            base_path = Path(base)
-
-            # 收集要搜索的文件
-            files: list[Path] = []
-            if base_path.is_file():
-                files = [base_path]
-            elif base_path.is_dir():
-                files = sorted(base_path.rglob(validated.include))
+            base_info = await self.fs.stat(validated.path)
+            if base_info.is_file:
+                files = [(validated.path, posixpath.basename(validated.path))]
+            elif base_info.is_dir:
+                files = [
+                    item
+                    for item in await self._files(validated.path)
+                    if fnmatch.fnmatch(posixpath.basename(item[1]), validated.include)
+                ]
             else:
                 return ToolResult.error(f"Path not found: {validated.path}")
 
             # 搜索
             matches: list[str] = []
             total_matches = 0
-            for file_path in files:
-                if not file_path.is_file():
-                    continue
+            for file_path, relative_path in files:
                 # 跳过二进制文件 (简单检测)
                 try:
-                    text = file_path.read_text(encoding="utf-8", errors="strict")
+                    text = (await self.fs.read(file_path)).decode("utf-8", errors="strict")
                 except (UnicodeDecodeError, PermissionError):
                     continue
 
                 for line_no, line in enumerate(text.splitlines(), 1):
                     if regex.search(line):
-                        rel = (
-                            file_path.relative_to(base_path)
-                            if base_path.is_dir()
-                            else file_path.name
-                        )
-                        matches.append(f"{rel}:{line_no}:{line.strip()}")
+                        matches.append(f"{relative_path}:{line_no}:{line.strip()}")
                         total_matches += 1
                         if len(matches) >= validated.max_results:
                             break

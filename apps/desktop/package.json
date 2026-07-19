@@ -2,12 +2,28 @@
   "name": "agent-conch-desktop",
   "private": true,
   "version": "0.4.0",
+  "description": "Agent Conch governed AI workbench desktop shell",
+  "author": "Agent Conch",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.cjs && node --check preload.cjs"
+    "check": "node --check main.cjs && node --check preload.cjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "latest"
+    "electron": "latest",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "dev.agentconch.desktop",
+    "productName": "Agent Conch",
+    "asar": true,
+    "files": ["main.cjs", "preload.cjs", "package.json"],
+    "extraResources": [{ "from": "../web/dist", "to": "web" }],
+    "directories": { "output": "dist" },
+    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg", "zip"] },
+    "linux": { "category": "Development", "target": ["AppImage"] },
+    "win": { "target": ["nsis"] }
   }
 }

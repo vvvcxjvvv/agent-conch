@@ -12,9 +12,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from agent_conch.security.permissions import ACTION_LEVELS, ACTION_PERMISSIONS
+from agent_conch.security.content_safety import ContentSafetyGuard
+from agent_conch.security.permissions import ACTION_LEVELS, ACTION_PERMISSIONS, Permission
 from agent_conch.security.policy_engine import PolicyEffect, PolicyEngine, PolicyRequest
 from agent_conch.tools.base import BaseTool, ToolCall, ToolExecutionRecord, ToolResult
+from agent_conch.tools.output_manager import ToolOutputManager
 from agent_conch.tools.tool_policy import PolicyContext, PolicyDecision, ToolAction, ToolPolicy
 
 
@@ -67,6 +69,8 @@ class ToolRegistry:
         approvals: ApprovalGateway | None = None,
         budgets: BudgetGateway | None = None,
         default_role: str = "admin",
+        content_guard: ContentSafetyGuard | None = None,
+        output_manager: ToolOutputManager | None = None,
     ):
         self._tools: dict[str, BaseTool] = {}
         self._health: dict[str, ToolHealthState] = {}
@@ -77,6 +81,8 @@ class ToolRegistry:
         self.approvals = approvals
         self.budgets = budgets
         self.default_role = default_role
+        self.content_guard = content_guard
+        self.output_manager = output_manager
         self._session_identities: dict[str, tuple[str, str, str]] = {}
 
     def set_session_identity(
@@ -273,6 +279,24 @@ class ToolRegistry:
 
         requires_approval = decision == PolicyDecision.REQUIRE_APPROVAL
         if self.governance is not None:
+            if "mcp" in tool.tags:
+                required_permissions = [Permission.TOOL_EXECUTE, Permission.TOOL_NETWORK]
+                if tool.is_write_tool:
+                    required_permissions.append(Permission.TOOL_WRITE)
+                for permission in required_permissions:
+                    authorization = self.governance.rbac.authorize(selected_role, permission)
+                    if not authorization.allowed:
+                        result = ToolResult.error(
+                            f"Tool blocked by governance policy: {authorization.reason}"
+                        )
+                        return ToolExecutionRecord(
+                            tool_name=call.name,
+                            tool_call_id=call.id,
+                            arguments=validated,
+                            result=result,
+                            duration_ms=int((_time.time() - start) * 1000),
+                            status="blocked",
+                        )
             governance = self.governance.evaluate(
                 PolicyRequest(
                     principal=principal,
@@ -361,6 +385,11 @@ class ToolRegistry:
             result = ToolResult.error(f"Tool execution error: {e!s}")
             status = "error"
 
+        if self.content_guard is not None:
+            result = self.content_guard.sanitize_result(result)
+        if self.output_manager is not None:
+            result = self.output_manager.process(call.name, session_id, result)
+
         return ToolExecutionRecord(
             tool_name=call.name,
             tool_call_id=call.id,
@@ -372,6 +401,9 @@ class ToolRegistry:
 
     def _infer_action(self, tool: BaseTool) -> ToolAction:
         """推断工具操作类型."""
+        declared_action = getattr(tool, "governance_action", "")
+        if declared_action:
+            return ToolAction(str(declared_action))
         if tool.is_write_tool:
             return ToolAction.WRITE
         if tool.name in ("bash", "task_manage"):

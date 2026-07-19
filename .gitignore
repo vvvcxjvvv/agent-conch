@@ -26,6 +26,8 @@ env/
 .coverage
 htmlcov/
 .tox/
+test-results/
+playwright-report/
 
 # Agent-Conch runtime
 state.db

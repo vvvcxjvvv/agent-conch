@@ -31,6 +31,7 @@ from agent_conch.engine.runtime.builtin import BuiltinConchRuntime
 from agent_conch.engine.runtime.types import AgentResult, RuntimeConfig
 from agent_conch.governance.budget import BudgetLimits, BudgetManager, CostBudgetLayer
 from agent_conch.governance.scheduler import CronScheduler
+from agent_conch.hooks.executor import HookExecutor, HookExecutorLayer, HookSpec
 from agent_conch.multiagent.coordinator import Coordinator, DecisionTable
 from agent_conch.multiagent.subagent import SubagentRecord
 from agent_conch.observability.decision_trace import DecisionTraceStore
@@ -41,11 +42,15 @@ from agent_conch.observability.otel import ObservabilityLayer, OTelTracer
 from agent_conch.observability.trace_store import TraceStore
 from agent_conch.prompts.agents_md import discover_agents_md
 from agent_conch.prompts.system_prompt import build_system_prompt
+from agent_conch.sandbox.docker import DockerBackend, DockerConfig
 from agent_conch.sandbox.local import LocalBackend
+from agent_conch.sandbox.network_policy import NetworkPolicy
 from agent_conch.sandbox.path_validator import PathValidator
 from agent_conch.sandbox.registry import SandboxRegistry
 from agent_conch.sandbox.snapshots import SnapshotManager
+from agent_conch.sandbox.ssh import SSHBackend, SSHConfig
 from agent_conch.security.audit import SecurityAudit
+from agent_conch.security.content_safety import ContentSafetyGuard
 from agent_conch.security.credentials import CredentialPool, CredentialRef
 from agent_conch.security.permissions import RBAC, Permission
 from agent_conch.security.policy_engine import PolicyEngine
@@ -66,6 +71,8 @@ from agent_conch.tools.core.web_fetch import WebFetchTool
 from agent_conch.tools.core.web_search import WebSearchTool
 from agent_conch.tools.core.write_file import WriteFileTool
 from agent_conch.tools.footprint import FootprintLadder
+from agent_conch.tools.mcp_client import MCPClient, MCPServerSpec
+from agent_conch.tools.output_manager import ToolOutputManager
 from agent_conch.tools.registry import ToolRegistry
 from agent_conch.tools.tool_policy import ToolPolicy
 from agent_conch.tools.tool_search import ToolSearch
@@ -109,9 +116,15 @@ class ConchEngine:
         self.security_audit = SecurityAudit()
         self.approval_store = WriteApprovalStore(self.session_db)
         self.rbac = RBAC()
+        self.content_guard = ContentSafetyGuard(
+            self.config.governance.content_safety_enabled,
+            self.config.governance.redact_sensitive,
+            self.config.governance.denied_content_patterns,
+        )
         self.policy_engine = PolicyEngine.from_config(
             self.config.governance.policy_rules,
             self.config.governance.approval_level,
+            self.content_guard,
         )
         budget_limits = BudgetLimits(
             max_tokens=self.config.budget.max_tokens,
@@ -144,6 +157,11 @@ class ConchEngine:
             credential_refs,
             failure_cooldown=self.config.credentials.failure_cooldown,
         )
+        self.output_manager = ToolOutputManager(
+            self.config.state.storage_path / "tool-outputs",
+            self.config.tools.output_max_chars,
+            self.config.tools.output_preview_chars,
+        )
 
         # === E 层: 沙箱 ===
         path_validator = PathValidator(
@@ -152,14 +170,48 @@ class ConchEngine:
             cwd=self.cwd,
         )
         self.local_backend = LocalBackend(validator=path_validator, default_cwd=self.cwd)
+        self.network_policy = NetworkPolicy(
+            self.config.sandbox.network_policy.enforce,
+            self.config.sandbox.network_policy.allowlist,
+        )
         self.sandbox_registry = SandboxRegistry(mode=self.config.sandbox.mode)
         self.sandbox_registry.register("local", self.local_backend)
         if self.config.sandbox.default_backend == "docker":
-            from agent_conch.sandbox.docker import DockerBackend
-
-            self.sandbox_registry.register("docker", DockerBackend())
+            docker = self.config.sandbox.docker
+            self.sandbox_registry.register(
+                "docker",
+                DockerBackend(
+                    DockerConfig(
+                        image=docker.image,
+                        memory_limit=docker.memory_limit,
+                        cpu_limit=docker.cpu_limit,
+                        network=docker.network,
+                        runtime=docker.runtime,
+                        volumes=docker.volumes,
+                    )
+                ),
+            )
+        if self.config.sandbox.default_backend == "ssh" or self.config.sandbox.ssh.host:
+            ssh = self.config.sandbox.ssh
+            self.sandbox_registry.register(
+                "ssh",
+                SSHBackend(
+                    SSHConfig(
+                        host=ssh.host,
+                        user=ssh.user,
+                        port=ssh.port,
+                        identity_file=ssh.identity_file,
+                        strict_host_key=ssh.strict_host_key,
+                        connect_timeout=ssh.connect_timeout,
+                        work_dir=ssh.work_dir,
+                        allowed_roots=ssh.allowed_roots,
+                    )
+                ),
+            )
         self.sandbox_registry.set_default(self.config.sandbox.default_backend)
         self.snapshot_manager = SnapshotManager(self.session_db, self.sandbox_registry)
+        hook_specs = [HookSpec.from_dict(item) for item in self.config.hooks.commands]
+        self.hook_executor = HookExecutor(self.session_db, self._run_hook, hook_specs)
 
         # === T 层: 工具系统 ===
         self.tool_policy = ToolPolicy()
@@ -171,6 +223,8 @@ class ConchEngine:
             approvals=self.approval_store,
             budgets=self.budget_manager,
             default_role=self.config.governance.default_role,
+            content_guard=self.content_guard,
+            output_manager=self.output_manager,
         )
 
         self.tool_search = ToolSearch(
@@ -180,6 +234,11 @@ class ConchEngine:
         self.footprint_ladder = FootprintLadder()
 
         self._register_core_tools()
+        self.mcp_client = MCPClient(
+            [MCPServerSpec.from_dict(item) for item in self.config.mcp.servers]
+        )
+        self._mcp_initialized = False
+        self._mcp_tool_names: set[str] = set()
 
         # === Prompt ===
         agents_md = discover_agents_md(self.cwd) if self.config.prompt.discover_agents_md else ""
@@ -320,10 +379,10 @@ class ConchEngine:
             ReadFileTool(fs),
             WriteFileTool(fs),
             EditFileTool(fs),
-            GlobTool(backend.validator),  # type: ignore[attr-defined]
-            GrepTool(backend.validator),  # type: ignore[attr-defined]
-            WebSearchTool(),
-            WebFetchTool(),
+            GlobTool(fs),
+            GrepTool(fs),
+            WebSearchTool(self.network_policy),
+            WebFetchTool(self.network_policy),
             SkillTool(
                 skills_dir=os.path.join(os.path.dirname(__file__), "..", "..", "..", "skills")
             ),
@@ -334,6 +393,27 @@ class ConchEngine:
 
         for tool in tools:
             self.tool_registry.register(tool)
+
+    async def refresh_mcp_tools(self) -> list[dict[str, Any]]:
+        for name in self._mcp_tool_names:
+            self.tool_registry.unregister(name)
+        self._mcp_tool_names.clear()
+        if not self.config.mcp.enabled:
+            self._mcp_initialized = True
+            return self.mcp_client.status()
+        for server in self.mcp_client.servers.values():
+            if not server.enabled:
+                continue
+            try:
+                await self.mcp_client.connect(server.name)
+                await self.mcp_client.refresh(server.name)
+                for adapter in self.mcp_client.adapters(server.name):
+                    self.tool_registry.register(adapter)
+                    self._mcp_tool_names.add(adapter.name)
+            except Exception as exc:
+                self.mcp_client.errors[server.name] = str(exc)
+        self._mcp_initialized = True
+        return self.mcp_client.status()
 
     def _setup_layers(self) -> None:
         """配置 Layer."""
@@ -377,9 +457,16 @@ class ConchEngine:
                         ),
                     )
                 )
+        if self.config.hooks.enabled and self.hook_executor.specs:
+            self.layer_manager.add(HookExecutorLayer(self.hook_executor))
 
     async def _run_verification(self, command: str, cwd: str | None, timeout: int) -> Any:
         return await self.local_backend.execute(command, cwd=cwd, timeout=timeout)
+
+    async def _run_hook(
+        self, command: str, cwd: str | None, timeout: int, env: dict[str, str]
+    ) -> Any:
+        return await self.local_backend.execute(command, cwd=cwd, timeout=timeout, env=env)
 
     def _collect_env_info(self) -> str:
         """收集环境信息 (供 system prompt)."""
@@ -451,7 +538,10 @@ class ConchEngine:
 
         self.tool_registry.set_session_identity(session_id, principal, selected_role, sender)
         try:
+            if not self._mcp_initialized and self.mcp_client.servers:
+                await self.refresh_mcp_tools()
             result = await self.runtime.run(session_id, user_input)
+            result.final_response = self.content_guard.redact(result.final_response)
             if self.config.verification.review_on_submit and result.status == "completed":
                 report = self.verification_store.latest(session_id)
                 review = await self.self_review.run(
@@ -582,6 +672,9 @@ class ConchEngine:
             "schedules": [asdict(item) for item in self.scheduler.list_schedules()],
             "coordinator": [asdict(item) for item in self.coordinator.list_runs(20)],
             "snapshots": self.snapshot_manager.overview(),
+            "mcp": self.mcp_client.status(),
+            "hooks": [asdict(item) for item in self.hook_executor.list_executions(limit=20)],
+            "sandboxes": self.sandbox_registry.list_backends(),
         }
 
     def run_security_audit(self) -> list[Any]:
@@ -598,4 +691,11 @@ class ConchEngine:
 
     def close(self) -> None:
         """关闭引擎, 释放资源."""
+        self.session_db.close()
+
+    async def shutdown_services(self) -> None:
+        await self.mcp_client.close_all()
+
+    async def aclose(self) -> None:
+        await self.shutdown_services()
         self.session_db.close()

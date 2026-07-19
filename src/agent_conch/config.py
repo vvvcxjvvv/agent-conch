@@ -44,6 +44,36 @@ class ToolsConfig:
     check_fn_ttl: int = 30
     transient_suppress: int = 60
     parallel_execution: bool = True
+    output_max_chars: int = 20_000
+    output_preview_chars: int = 4_000
+
+
+@dataclass
+class DockerSandboxConfig:
+    image: str = "python:3.12-slim"
+    memory_limit: str = "512m"
+    cpu_limit: str = "1.0"
+    network: str = "none"
+    runtime: str = ""
+    volumes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SSHSandboxConfig:
+    host: str = ""
+    user: str = ""
+    port: int = 22
+    identity_file: str = ""
+    strict_host_key: bool = True
+    connect_timeout: int = 10
+    work_dir: str = "."
+    allowed_roots: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NetworkPolicyConfig:
+    enforce: bool = False
+    allowlist: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +86,9 @@ class SandboxConfig:
         default_factory=lambda: ["/etc", "~/.ssh", "/.env", "~/.config"]
     )
     allowed_roots: list[str] = field(default_factory=list)
+    docker: DockerSandboxConfig = field(default_factory=DockerSandboxConfig)
+    ssh: SSHSandboxConfig = field(default_factory=SSHSandboxConfig)
+    network_policy: NetworkPolicyConfig = field(default_factory=NetworkPolicyConfig)
 
 
 @dataclass
@@ -118,6 +151,21 @@ class GovernanceConfig:
     default_role: str = "admin"
     approval_level: int = 4
     policy_rules: list[dict[str, Any]] = field(default_factory=list)
+    content_safety_enabled: bool = True
+    redact_sensitive: bool = True
+    denied_content_patterns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MCPConfig:
+    enabled: bool = True
+    servers: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class HooksConfig:
+    enabled: bool = True
+    commands: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -190,17 +238,29 @@ class ConchConfig:
     regression: RegressionConfig = field(default_factory=RegressionConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     coordinator: CoordinatorConfig = field(default_factory=CoordinatorConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
+    hooks: HooksConfig = field(default_factory=HooksConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConchConfig:
         """从字典构建配置, 缺失字段使用默认值."""
+        sandbox_data = dict(data.get("sandbox", {}))
+        docker_data = dict(sandbox_data.pop("docker", {}))
+        ssh_data = dict(sandbox_data.pop("ssh", {}))
+        network_data = dict(sandbox_data.pop("network_policy", {}))
+        sandbox = SandboxConfig(
+            **sandbox_data,
+            docker=DockerSandboxConfig(**docker_data),
+            ssh=SSHSandboxConfig(**ssh_data),
+            network_policy=NetworkPolicyConfig(**network_data),
+        )
         return cls(
             model=ModelConfig(**data.get("model", {})),
             agent_loop=AgentLoopConfig(**data.get("agent_loop", {})),
             tools=ToolsConfig(**data.get("tools", {})),
-            sandbox=SandboxConfig(**data.get("sandbox", {})),
+            sandbox=sandbox,
             state=StateConfig(**data.get("state", {})),
             layers=LayersConfig(**data.get("layers", {})),
             quota=QuotaConfig(**data.get("quota", {})),
@@ -212,6 +272,8 @@ class ConchConfig:
             regression=RegressionConfig(**data.get("regression", {})),
             scheduler=SchedulerConfig(**data.get("scheduler", {})),
             coordinator=CoordinatorConfig(**data.get("coordinator", {})),
+            mcp=MCPConfig(**data.get("mcp", {})),
+            hooks=HooksConfig(**data.get("hooks", {})),
             prompt=PromptConfig(**data.get("prompt", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )

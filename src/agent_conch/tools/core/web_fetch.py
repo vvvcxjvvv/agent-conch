@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_conch.sandbox.network_policy import NetworkPolicy
 from agent_conch.tools.base import BaseTool, ToolResult
 
 
@@ -31,11 +32,15 @@ class WebFetchTool(BaseTool):
     is_core = True
     tags = ["web", "fetch", "network"]
 
+    def __init__(self, network_policy: NetworkPolicy | None = None) -> None:
+        self.network_policy = network_policy or NetworkPolicy()
+
     async def execute(self, **kwargs: Any) -> ToolResult:
         validated = WebFetchInput(**kwargs)
         try:
             import httpx
 
+            self.network_policy.require_url(validated.url)
             headers = {"User-Agent": "Mozilla/5.0 (compatible; AgentConch/1.0)"}
             async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
                 resp = await client.get(validated.url, headers=headers)

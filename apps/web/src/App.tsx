@@ -3,9 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import agentConchLogo from "./assets/agent-conch-logo.png";
 import { API_BASE, api } from "./api";
-import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, RunResult } from "./types";
+import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, McpServer, Message, RunResult, Session, SkillSummary, ToolCatalog } from "./types";
 
-type Tab = "response" | "timeline" | "decisions" | "trajectory" | "traces" | "verification" | "governance";
+type Tab = "response" | "timeline" | "decisions" | "trajectory" | "traces" | "verification" | "governance" | "console";
 
 const tabLabels: Record<Tab, string> = {
   response: "最终回答",
@@ -15,6 +15,7 @@ const tabLabels: Record<Tab, string> = {
   traces: "Trace",
   verification: "验证报告",
   governance: "治理中心",
+  console: "资源控制台",
 };
 
 const navigation: Array<{ tab: Tab; icon: string; label: string }> = [
@@ -25,6 +26,7 @@ const navigation: Array<{ tab: Tab; icon: string; label: string }> = [
   { tab: "traces", icon: "◫", label: "Trace" },
   { tab: "verification", icon: "✓", label: "验证报告" },
   { tab: "governance", icon: "◆", label: "治理中心" },
+  { tab: "console", icon: "▦", label: "资源控制台" },
 ];
 
 const emptyInsight: Insight = {
@@ -177,6 +179,60 @@ function GovernancePanel({
   );
 }
 
+export function ResourceConsole({
+  sessions,
+  messages,
+  tools,
+  skills,
+  mcp,
+  hooks,
+  selectedSession,
+  onSelectSession,
+  onRefreshMcp,
+}: {
+  sessions: Session[];
+  messages: Message[];
+  tools: ToolCatalog;
+  skills: SkillSummary[];
+  mcp: McpServer[];
+  hooks: JsonObject[];
+  selectedSession: string;
+  onSelectSession: (id: string) => void;
+  onRefreshMcp: () => void;
+}) {
+  return (
+    <div className="resource-console">
+      <section className="console-column">
+        <header><div><small>SESSION</small><h3>会话与消息</h3></div><b>{sessions.length}</b></header>
+        <div className="session-list">
+          {sessions.map((session) => (
+            <button className={selectedSession === session.id ? "active" : ""} key={session.id} onClick={() => onSelectSession(session.id)}>
+              <strong>{session.id}</strong><span>{session.status}</span><small>{new Date(session.updated_at * 1000).toLocaleString()}</small>
+            </button>
+          ))}
+        </div>
+        <div className="chat-history">
+          {messages.length === 0 ? <div className="empty compact">选择会话查看消息</div> : messages.map((message) => (
+            <article key={String(message.id)} className={`chat-${message.role}`}><small>{message.role}</small><p>{message.content || "[tool call]"}</p></article>
+          ))}
+        </div>
+      </section>
+      <section className="console-column">
+        <header><div><small>TOOLS</small><h3>工具健康</h3></div><b>{tools.schemas.length}</b></header>
+        <div className="resource-list">{tools.schemas.map((tool) => <article key={tool.name}><strong>{tool.name}</strong><span>{String(tools.health[tool.name]?.suppressed ? "suppressed" : "ready")}</span><p>{tool.description}</p></article>)}</div>
+      </section>
+      <section className="console-column">
+        <header><div><small>MCP · SKILL · HOOK</small><h3>扩展资源</h3></div><button onClick={onRefreshMcp}>刷新 MCP</button></header>
+        <div className="resource-list">
+          {mcp.map((server) => <article key={server.name}><strong>{server.name}</strong><span>{server.connected ? "connected" : server.enabled ? "offline" : "disabled"}</span><p>{server.error || `${server.tools.length} tools`}</p></article>)}
+          {skills.map((skill) => <article key={skill.name}><strong>{skill.name}</strong><span>skill</span><p>{skill.description}</p></article>)}
+          {hooks.map((hook, index) => <article key={String(hook.execution_id ?? index)}><strong>{String(hook.hook_name ?? "hook")}</strong><span>{String(hook.status ?? "unknown")}</span><p>{String(hook.event ?? "")}</p></article>)}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID().slice(0, 12));
   const [input, setInput] = useState("检查当前仓库并给出可验证的结果");
@@ -195,6 +251,12 @@ export default function App() {
   const [responseView, setResponseView] = useState<"markdown" | "source">("markdown");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [toolCatalog, setToolCatalog] = useState<ToolCatalog>({ schemas: [], health: {} });
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [mcp, setMcp] = useState<McpServer[]>([]);
+  const [hooks, setHooks] = useState<JsonObject[]>([]);
 
   const refresh = useCallback(async () => {
     const settled = await Promise.allSettled([
@@ -216,6 +278,29 @@ export default function App() {
     if (settled[6].status === "fulfilled") setAudit(settled[6].value);
     if (settled[7].status === "fulfilled") setGovernance(settled[7].value);
   }, [sessionId]);
+
+  const refreshResources = useCallback(async () => {
+    const settled = await Promise.allSettled([api.sessions(), api.tools(), api.skills(), api.mcp(), api.hooks()]);
+    if (settled[0].status === "fulfilled") setSessions(settled[0].value);
+    if (settled[1].status === "fulfilled") setToolCatalog(settled[1].value);
+    if (settled[2].status === "fulfilled") setSkills(settled[2].value);
+    if (settled[3].status === "fulfilled") setMcp(settled[3].value);
+    if (settled[4].status === "fulfilled") setHooks(settled[4].value);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "console") void refreshResources();
+  }, [refreshResources, tab]);
+
+  async function selectSession(id: string) {
+    setSessionId(id);
+    setMessages(await api.messages(id));
+  }
+
+  async function refreshMcp() {
+    setMcp(await api.refreshMcp());
+    await refreshResources();
+  }
 
   useEffect(() => {
     void refresh();
@@ -322,7 +407,7 @@ export default function App() {
 
             <section className="result-panel panel">
               <div className="result-toolbar"><div><p>RUN OUTPUT</p><h2>{tabLabels[tab]}</h2></div><nav className="result-tabs">
-                {(["response", "decisions", "timeline", "trajectory", "traces", "verification", "governance"] as Tab[]).map((item) => (
+                {(["response", "decisions", "timeline", "trajectory", "traces", "verification", "governance", "console"] as Tab[]).map((item) => (
                   <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{tabLabels[item]}</button>
                 ))}
               </nav></div>
@@ -339,6 +424,8 @@ export default function App() {
                     onAnalyzeSkills={() => void runGovernanceAction("curator", api.analyzeSkills)}
                     onRunSchedules={() => void runGovernanceAction("schedules", api.runSchedules)}
                   />
+                ) : tab === "console" ? (
+                  <ResourceConsole sessions={sessions} messages={messages} tools={toolCatalog} skills={skills} mcp={mcp} hooks={hooks} selectedSession={sessionId} onSelectSession={(id) => void selectSession(id)} onRefreshMcp={() => void refreshMcp()} />
                 ) : (
                   <JsonRows rows={activeRows} />
                 )}

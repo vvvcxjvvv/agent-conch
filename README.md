@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-200%20passed%20%2F%201%20skipped-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-209%20passed%20%2F%201%20skipped-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)]()
 
 **核心论点：Agent = Model + Harness。** 通过外部系统设计（工具编排、状态管理、沙箱隔离、验证层）让 AI Agent 在生产环境中稳定可控，不依赖模型权重优化。
@@ -32,7 +32,8 @@
 - **12 核心工具** — bash、文件读写编辑、glob/grep、web 搜索/抓取、skill、ask_user、task_manage、tool_search，支持并行执行
 - **可插拔 Context Engine** — 渐进式上下文压缩（清理 → 折叠 → 摘要归档）+ Prompt Caching + Skill 按需注入
 - **分层记忆** — Short / Session / Long / Meta 四层记忆 + 自动提取 + FTS5 全文搜索
-- **沙箱隔离** — Local + Docker 双后端 + FsBridge 文件操作抽象 + 敏感路径跨平台保护
+- **沙箱隔离** — Local + Docker + SSH 三后端、gVisor `runsc`、FsBridge 与出站网络白名单
+- **工具扩展与安全** — MCP stdio 动态工具、生命周期 Hook、内容安全脱敏、超长输出私有制品化
 - **子 Agent** — SQLite 注册表 + 孤儿检测/恢复/认领 + 工具委托策略
 - **Checkpoint** — 完整状态序列化 + Pause/Resume
 - **轨迹回放** — 每步持久化 + JSONL 导出 + DB/文件双模式回放
@@ -128,16 +129,31 @@ curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/regressions
 curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/schedules
 curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/coordinator/runs
 
+# 会话/消息与 Tool/MCP/Skill/Hook 管理接口
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/sessions
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/sessions/p3-e2e-001/messages
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/tools
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/skills
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/mcp/servers
+curl -H 'X-Conch-Role: viewer' http://127.0.0.1:8765/hooks/executions
+
 # Electron Desktop（先构建 Web；后端 conch serve 保持运行）
 cd apps/web && npm run build
 cd ../desktop && npm install && npm start
 # 开发模式：CONCH_WEB_URL=http://127.0.0.1:5173 npm start
+# 可分发目录：npm run pack；签名安装包：npm run dist
+
+# Web 自动验收
+cd apps/web
+npm run test
+npm run test:e2e
 
 # Web Console 验收：
 # timeline 显示 SSE 事件；决策轨迹展示观察、决策、执行、验证和结论摘要；
 # trajectory/traces 展示底层执行证据；
 # 最终回答可手动切换 Markdown 预览和源文本；
 # 成功执行 write_file/edit_file 后 verification 生成服务级报告；
+# 资源控制台可查看会话消息、Tool 健康、MCP/Skill/Hook；
 # 审批可从 pending 更新为 approved/rejected；默认安全审计返回 []。
 ```
 
@@ -157,9 +173,9 @@ Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
  ├───────────────────────────────────────────────────┤
  │ C · 上下文     ContextEngine · 压缩 · Skill · 记忆 │
  ├───────────────────────────────────────────────────┤
- │ T · 工具接口   12 工具 · Registry · Policy · 并行   │
+ │ T · 工具接口   12 工具 · MCP · Registry · Policy   │
  ├───────────────────────────────────────────────────┤
- │ E · 执行环境   Local/Docker 沙箱 · FsBridge · 保护 │
+ │ E · 执行环境   Local/Docker/SSH · gVisor · FS Bridge │
  ├───────────────────────────────────────────────────┤
  │ S · 状态存储   SQLite · Checkpoint · FTS5          │
  └───────────────────────────────────────────────────┘
@@ -169,13 +185,13 @@ Agent-Conch 以 **ETCLOVG 七层模型** 为架构骨架：
 
 | 层级 | 名称 | 当前能力 |
 |------|------|----------|
-| E | 执行环境与沙箱 | Local/Docker + FsBridge + 敏感路径保护 + 快照/回滚 |
-| T | 工具接口层 | 12 核心工具 + ToolRegistry + ToolPolicy + PolicyEngine 前置治理 + 预算 |
+| E | 执行环境与沙箱 | Local/Docker/SSH + gVisor runtime + FsBridge + 网络白名单 + 快照/回滚 |
+| T | 工具接口层 | 12 核心工具 + MCP + ToolRegistry + ToolPolicy + 输出 offload + 前置治理 |
 | C | 上下文与记忆 | ContextEngine + 渐进式压缩 + Prompt Caching + Skill/Memory + Skill Curator |
-| L | 生命周期与编排 | Agent Loop + Layer 插件 + Checkpoint + Cron + Coordinator 多 Agent |
+| L | 生命周期与编排 | Agent Loop + Layer 插件 + HookExecutor + Checkpoint + Cron + Coordinator 多 Agent |
 | O | 可观测性 | OTel + 持久化事件流 + Trace/Decision/Trajectory + exit_status + Insights |
 | V | 验证与评估 | VerificationLayer + Reviewer + 自审 + 失败沉淀 + 回归质量门禁 |
-| G | 治理与安全 | RBAC + 5 级操作 + PolicyEngine + WriteApproval + Credential Pool + 成本熔断 |
+| G | 治理与安全 | RBAC + 5 级操作 + PolicyEngine + 内容安全 + WriteApproval + Credential Pool + 成本熔断 |
 | S | 状态存储 | SQLite SessionDB + Checkpoint + 治理/回归/调度/Coordinator/快照状态 |
 
 ## CLI 命令
@@ -321,7 +337,7 @@ agent-conch/
 │       └── agents_md.py       # AGENTS.md 发现
 ├── apps/web/                  # React 治理工作台
 ├── apps/desktop/              # Electron 安全封装与终端桥接
-├── tests/                     # 200 个通过测试 + 1 Docker 条件跳过
+├── tests/                     # 209 个通过测试 + 1 Docker 条件跳过
 ├── docs/                      # 设计文档 + 阶段总结
 ├── conch.yaml                 # 默认配置
 └── pyproject.toml
@@ -342,7 +358,7 @@ pytest tests/test_context.py    # C 层
 pytest tests/test_engine.py     # L 层
 ```
 
-当前状态：**200 个测试通过，1 个 Docker 集成测试因本机无可用 Docker daemon 条件跳过**；P4 新增 19 个治理、回归、Curator、调度、Coordinator、快照、持久化事件、Credential Pool 和 Desktop API 闭环用例。
+当前状态：**209 个测试通过，1 个 Docker 集成测试因本机未安装 Docker 条件跳过**；Web Vitest 与 Playwright E2E 通过，Electron 可分发目录打包通过。
 
 | 测试文件 | 覆盖层 | 测试数 |
 |----------|--------|--------|
@@ -356,6 +372,7 @@ pytest tests/test_engine.py     # L 层
 | `test_integration.py` | 集成 | 5 |
 | `test_p3.py` | P3 O/V/G/API/SSE/检索综合 | 15 |
 | `test_p4.py` | P4 治理/回归/调度/多 Agent/Desktop 综合 | 19 |
+| `test_design_closure.py` | SSH/gVisor/网络/MCP/Hook/内容安全/管理 API | 9 |
 
 ## 路线图
 

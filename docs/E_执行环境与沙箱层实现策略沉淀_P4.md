@@ -31,3 +31,10 @@ E 层负责受控执行、文件桥接和可恢复环境。P4 目标是 Docker c
 ## 六、演进与优化方向
 
 增加真实 Docker 快照 CI、快照保留/配额策略、Electron 打包签名和多平台冒烟；远期可增加 gVisor backend，但保持 SandboxBackend 契约不变。
+
+## 七、设计缺口闭环增量（2026-07-19）
+
+- SSHBackend 与 SSHFsBridge 已实现远端命令和完整 FsBridge 契约，严格 host key 默认开启并支持远端 allowed roots。
+- DockerConfig 新增 `runtime`，配置 `runsc` 时生成 `docker run --runtime runsc`；网络策略支持域名通配符与 CIDR，并接入 WebSearch/WebFetch。
+- Glob/Grep 已从本地 pathlib 改为只依赖 FsBridge，Local/Docker/SSH 后端行为统一。
+- Electron `electron-builder --dir` 打包通过；签名、公证仍需 Developer ID。当前机器未安装 Docker/runsc 且无 SSH 验收目标，真实环境冒烟保留为发布验收项。

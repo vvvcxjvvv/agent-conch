@@ -1,4 +1,4 @@
-import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, RunResult } from "./types";
+import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, McpServer, Message, RunResult, Session, SkillSummary, ToolCatalog } from "./types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765";
 
@@ -30,6 +30,13 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
   governance: () => request<GovernanceOverview>("/governance/overview"),
+  sessions: () => request<Session[]>("/sessions"),
+  messages: (id: string) => request<Message[]>(`/sessions/${id}/messages`),
+  tools: () => request<ToolCatalog>("/tools"),
+  skills: () => request<SkillSummary[]>("/skills"),
+  mcp: () => request<McpServer[]>("/mcp/servers"),
+  refreshMcp: () => request<McpServer[]>("/mcp/refresh", { method: "POST" }),
+  hooks: () => request<JsonObject[]>("/hooks/executions"),
   runRegressions: () => request<JsonObject>("/regressions/run", { method: "POST" }),
   analyzeSkills: () => request<JsonObject[]>("/curator/analyze", { method: "POST" }),
   runSchedules: () => request<JsonObject[]>("/schedules/run-due", { method: "POST" }),
