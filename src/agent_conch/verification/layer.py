@@ -8,6 +8,7 @@ from typing import Any
 
 from agent_conch.engine.layers.base import Layer, NodeContext
 from agent_conch.sandbox.local import CommandResult
+from agent_conch.verification.regression import RegressionStore
 from agent_conch.verification.report import (
     VerificationCheck,
     VerificationReport,
@@ -30,12 +31,16 @@ class VerificationLayer(Layer):
         commands: list[str] | None = None,
         cwd: str | None = None,
         timeout: int = 120,
+        regression_store: RegressionStore | None = None,
+        auto_capture_regressions: bool = True,
     ) -> None:
         self.store = store
         self.runner = runner
         self.commands = commands or []
         self.cwd = cwd
         self.timeout = timeout
+        self.regression_store = regression_store
+        self.auto_capture_regressions = auto_capture_regressions
 
     async def on_node_run_end(self, ctx: NodeContext, result: Any) -> None:
         records = list(result)
@@ -67,6 +72,10 @@ class VerificationLayer(Layer):
         claim = str((ctx.response or {}).get("content", ""))
         report = VerificationReport.create(ctx.session_id, ctx.turn_index, claim, checks)
         self.store.save(report)
+        if not report.passed and self.regression_store is not None and self.auto_capture_regressions:
+            regression_case = self.regression_store.capture(report)
+            if regression_case is not None:
+                ctx.metadata["regression_case_id"] = regression_case.case_id
         ctx.metadata["verification_report_id"] = report.report_id
         ctx.metadata["verification_passed"] = report.passed
         if not report.passed:

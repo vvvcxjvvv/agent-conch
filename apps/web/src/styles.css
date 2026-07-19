@@ -176,6 +176,26 @@ pre { margin: 0; padding: 12px 14px 14px 47px; overflow: auto; border-top: 1px s
 .markdown-body hr { margin: 1.2em 0; border: 0; border-top: 1px solid var(--border); }
 .response-source { max-height: 485px; margin: 14px 0 0; padding: 11px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; color: #b3bcc6; background: #090c11; font: 9px/1.65 DM Mono, monospace; white-space: pre-wrap; }
 
+.governance-dashboard { max-height: 555px; padding: 14px; overflow: auto; }
+.governance-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.governance-stats article { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.018); }
+.governance-stats small { color: #697281; font-size: 8px; }
+.governance-stats strong { color: #e8f7fa; font-size: 19px; font-weight: 600; }
+.governance-stats span { color: #5f6877; font-size: 8px; }
+.governance-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-top: 9px; }
+.governance-card { min-height: 250px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,.018); }
+.governance-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.governance-card > div:first-child span { color: #dbe3e8; font-size: 10px; font-weight: 600; }
+.governance-card > div:first-child b { padding: 3px 6px; border-radius: 999px; color: #77e6f4; background: var(--accent-soft); font: 7px DM Mono, monospace; }
+.governance-card p { min-height: 42px; margin: 11px 0; color: #737d8b; font-size: 9px; line-height: 1.55; }
+.governance-card ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.governance-card li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 8px; border-radius: 7px; background: rgba(5,8,12,.35); }
+.governance-card li strong { color: #b9c2cb; font-size: 8px; }
+.governance-card li span { color: #626c7a; font: 7px DM Mono, monospace; }
+.governance-actions button { width: 100%; margin-top: 7px; padding: 8px; border: 1px solid rgba(34,211,238,.18); border-radius: 8px; color: #78e7f5; background: var(--accent-soft); font-size: 8px; cursor: pointer; }
+.governance-actions button:hover { border-color: rgba(34,211,238,.36); background: rgba(34,211,238,.16); }
+.governance-actions button:disabled { opacity: .45; cursor: wait; }
+
 .utility-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .side-card { min-height: 115px; padding: 14px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; color: #cfd5dc; font-size: 10px; font-weight: 600; }
@@ -206,6 +226,7 @@ pre { margin: 0; padding: 12px 14px 14px 47px; overflow: auto; border-top: 1px s
 @media (max-width: 900px) {
   .workbench-grid { grid-template-columns: 1fr; }
   .task-composer { min-height: auto; }
+  .governance-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
   .app-shell { display: block; }
@@ -217,4 +238,5 @@ pre { margin: 0; padding: 12px 14px 14px 47px; overflow: auto; border-top: 1px s
   .result-toolbar { align-items: flex-start; flex-direction: column; }
   .result-tabs { width: 100%; }
   .utility-grid { grid-template-columns: 1fr; }
+  .governance-stats { grid-template-columns: repeat(2,1fr); }
 }

@@ -58,10 +58,38 @@ layers:
     - "verification"            # P3: 写操作后自动验证
     - "suspend"                 # P3: 暂停/恢复
     - "pause_state_persist"     # P3: 暂停状态持久化
-    # - "policy"                 # P4: 策略引擎
+    - "cost_budget"            # P4: Token/时间/工具/资源综合预算
 
 quota:
   max_tokens: 200000
+
+# === P4 治理配置 ===
+governance:
+  enabled: true
+  default_role: "admin"
+  approval_level: 4            # 1 只读 / 2 写 / 3 执行 / 4 管理 / 5 关键
+  policy_rules: []             # 支持 roles/senders/tools/actions/minimum_level/argument_contains
+
+budget:
+  max_tokens: 200000
+  max_seconds: 600
+  max_tool_calls: 500
+  max_resource_units: 1000
+
+credentials:
+  failure_cooldown: 60
+  entries: []                  # {alias, provider, reference, backend, priority}
+
+regression:
+  auto_capture: true
+  minimum_pass_rate: 1.0
+
+scheduler:
+  hard_timeout: 180            # 单任务硬中断上限，最大 3 分钟
+
+coordinator:
+  max_workers: 4
+  worker_role: "worker"
 
 verification:
   commands:

@@ -1,4 +1,4 @@
-import type { Approval, DecisionTrace, Insight, JsonObject, RunResult } from "./types";
+import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, RunResult } from "./types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765";
 
@@ -29,4 +29,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ status }),
     }),
+  governance: () => request<GovernanceOverview>("/governance/overview"),
+  runRegressions: () => request<JsonObject>("/regressions/run", { method: "POST" }),
+  analyzeSkills: () => request<JsonObject[]>("/curator/analyze", { method: "POST" }),
+  runSchedules: () => request<JsonObject[]>("/schedules/run-due", { method: "POST" }),
 };

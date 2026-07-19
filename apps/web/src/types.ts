@@ -32,3 +32,21 @@ export interface DecisionTrace extends JsonObject {
   evidence: JsonObject;
   created_at: number;
 }
+
+export interface GovernanceOverview extends JsonObject {
+  policy: {
+    approval_level: number;
+    roles: Record<string, string[]>;
+    rules: JsonObject[];
+  };
+  approvals: Approval[];
+  budgets: JsonObject[];
+  credentials: JsonObject[];
+  regressions: {
+    cases: number;
+    latest_results: JsonObject[];
+  };
+  schedules: JsonObject[];
+  coordinator: JsonObject[];
+  snapshots: JsonObject[];
+}

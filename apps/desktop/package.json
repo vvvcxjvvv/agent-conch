@@ -1,0 +1,13 @@
+{
+  "name": "agent-conch-desktop",
+  "private": true,
+  "version": "0.4.0",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.cjs && node --check preload.cjs"
+  },
+  "devDependencies": {
+    "electron": "latest"
+  }
+}

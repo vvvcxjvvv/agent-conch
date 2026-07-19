@@ -28,6 +28,7 @@ from agent_conch.engine.error_classifier import (
 from agent_conch.engine.layers.base import Event, GraphContext, LayerManager, NodeContext
 from agent_conch.engine.runtime.types import AgentResult, RuntimeConfig
 from agent_conch.observability.decision_trace import DecisionTraceStep, DecisionTraceStore
+from agent_conch.security.credentials import CredentialPool
 from agent_conch.state.session_db import SessionDB
 from agent_conch.state.trajectory import TrajectoryStep, TrajectoryStore
 from agent_conch.tools.base import ToolCall, ToolExecutionRecord, ToolResult
@@ -68,6 +69,8 @@ class AgentLoop:
         prompt_caching: Any = None,
         event_sink: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         decision_trace_store: DecisionTraceStore | None = None,
+        credential_pool: CredentialPool | None = None,
+        credential_provider: str = "",
     ):
         self.config = config
         self.db = session_db
@@ -82,6 +85,8 @@ class AgentLoop:
         self.prompt_caching = prompt_caching
         self.event_sink = event_sink
         self.decision_trace_store = decision_trace_store
+        self.credential_pool = credential_pool
+        self.credential_provider = credential_provider
 
     async def _emit(self, session_id: str, event: dict[str, Any]) -> None:
         if self.event_sink is not None:
@@ -355,7 +360,7 @@ class AgentLoop:
                     results = []
                     for tc in tool_calls:
                         record = await self.tools.execute_tool_call(
-                            tc, sandbox_mode=self.sandbox_mode
+                            tc, sandbox_mode=self.sandbox_mode, session_id=session_id
                         )
                         results.append(record)
 
@@ -448,6 +453,42 @@ class AgentLoop:
                 self.db.finish_turn(
                     turn_id, "completed", duration_ms=int((time.time() - turn_start) * 1000)
                 )
+
+                approval_records = [
+                    record for record in results if record.status == "approval_required"
+                ]
+                if approval_records:
+                    await self.layers.on_event(
+                        Event(
+                            type="pause",
+                            data={
+                                "session_id": session_id,
+                                "turn_index": turn_count,
+                                "agent_state": {"reason": "write_approval"},
+                            },
+                        )
+                    )
+                    self.db.update_session_status(session_id, "paused")
+                    await self._record_decision(
+                        session_id,
+                        turn_count,
+                        "govern",
+                        "等待操作审批",
+                        "高风险操作已在执行前暂停，批准后将精确恢复原始工具请求。",
+                        {"tools": [record.tool_name for record in approval_records]},
+                    )
+                    await self._emit(
+                        session_id,
+                        {"type": "run_finished", "status": "paused", "reason": "approval_required"},
+                    )
+                    return AgentResult(
+                        session_id=session_id,
+                        status="paused",
+                        error="Approval required",
+                        turn_count=turn_count,
+                        tool_calls_count=tool_calls_count,
+                        total_duration_ms=int((time.time() - run_start) * 1000),
+                    )
 
             except Exception as e:
                 error_msg = f"Turn {turn_count} error: {e!s}"
@@ -577,7 +618,21 @@ class AgentLoop:
         if tool_schemas:
             kwargs["tools"] = [{"type": "function", "function": s} for s in tool_schemas]
 
-        response = await litellm.acompletion(**kwargs)
+        lease = (
+            self.credential_pool.acquire(self.credential_provider)
+            if self.credential_pool is not None and self.credential_provider
+            else None
+        )
+        if lease is not None:
+            kwargs["api_key"] = lease.secret
+        try:
+            response = await litellm.acompletion(**kwargs)
+        except Exception:
+            if lease is not None and self.credential_pool is not None:
+                self.credential_pool.record_failure(lease.alias)
+            raise
+        if lease is not None and self.credential_pool is not None:
+            self.credential_pool.record_success(lease.alias)
 
         # 解析响应
         choice = response.choices[0]
@@ -637,7 +692,9 @@ class AgentLoop:
         if read_calls:
             read_results = await asyncio.gather(
                 *[
-                    self.tools.execute_tool_call(tc, sandbox_mode=self.sandbox_mode)
+                    self.tools.execute_tool_call(
+                        tc, sandbox_mode=self.sandbox_mode, session_id=session_id
+                    )
                     for tc in read_calls
                 ],
                 return_exceptions=True,
@@ -660,7 +717,9 @@ class AgentLoop:
 
         # 写操作串行
         for tc in write_calls:
-            record = await self.tools.execute_tool_call(tc, sandbox_mode=self.sandbox_mode)
+            record = await self.tools.execute_tool_call(
+                tc, sandbox_mode=self.sandbox_mode, session_id=session_id
+            )
             results.append(record)
 
         # 按原始顺序排序

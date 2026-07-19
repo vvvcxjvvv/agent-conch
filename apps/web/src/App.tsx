@@ -3,9 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import agentConchLogo from "./assets/agent-conch-logo.png";
 import { API_BASE, api } from "./api";
-import type { Approval, DecisionTrace, Insight, JsonObject, RunResult } from "./types";
+import type { Approval, DecisionTrace, GovernanceOverview, Insight, JsonObject, RunResult } from "./types";
 
-type Tab = "response" | "timeline" | "decisions" | "trajectory" | "traces" | "verification";
+type Tab = "response" | "timeline" | "decisions" | "trajectory" | "traces" | "verification" | "governance";
 
 const tabLabels: Record<Tab, string> = {
   response: "最终回答",
@@ -14,6 +14,7 @@ const tabLabels: Record<Tab, string> = {
   trajectory: "执行轨迹",
   traces: "Trace",
   verification: "验证报告",
+  governance: "治理中心",
 };
 
 const navigation: Array<{ tab: Tab; icon: string; label: string }> = [
@@ -23,6 +24,7 @@ const navigation: Array<{ tab: Tab; icon: string; label: string }> = [
   { tab: "trajectory", icon: "↗", label: "执行轨迹" },
   { tab: "traces", icon: "◫", label: "Trace" },
   { tab: "verification", icon: "✓", label: "验证报告" },
+  { tab: "governance", icon: "◆", label: "治理中心" },
 ];
 
 const emptyInsight: Insight = {
@@ -31,6 +33,17 @@ const emptyInsight: Insight = {
   total_tokens: 0,
   tool_calls: 0,
   average_tool_duration_ms: 0,
+};
+
+const emptyGovernance: GovernanceOverview = {
+  policy: { approval_level: 4, roles: {}, rules: [] },
+  approvals: [],
+  budgets: [],
+  credentials: [],
+  regressions: { cases: 0, latest_results: [] },
+  schedules: [],
+  coordinator: [],
+  snapshots: [],
 };
 
 function JsonRows({ rows }: { rows: JsonObject[] }) {
@@ -113,6 +126,57 @@ function ResponsePanel({
   );
 }
 
+function GovernancePanel({
+  data,
+  busy,
+  onRunRegressions,
+  onAnalyzeSkills,
+  onRunSchedules,
+}: {
+  data: GovernanceOverview;
+  busy: string;
+  onRunRegressions: () => void;
+  onAnalyzeSkills: () => void;
+  onRunSchedules: () => void;
+}) {
+  const breached = data.budgets.filter((item) => item.status === "breached").length;
+  const regressionPasses = data.regressions.latest_results.filter((item) => item.passed === true).length;
+  return (
+    <div className="governance-dashboard">
+      <section className="governance-stats">
+        <article><small>角色</small><strong>{Object.keys(data.policy.roles).length}</strong><span>{Object.values(data.policy.roles).reduce((sum, permissions) => sum + permissions.length, 0)} 个权限映射</span></article>
+        <article><small>策略规则</small><strong>{data.policy.rules.length}</strong><span>审批阈值 L{data.policy.approval_level}</span></article>
+        <article><small>预算熔断</small><strong>{breached}</strong><span>{data.budgets.length} 个运行预算</span></article>
+        <article><small>回归用例</small><strong>{data.regressions.cases}</strong><span>{regressionPasses} 个最新通过</span></article>
+      </section>
+      <section className="governance-grid">
+        <article className="governance-card">
+          <div><span>RBAC 与 PolicyEngine</span><b>{Object.keys(data.policy.roles).length} roles</b></div>
+          <p>五级操作分级、工具执行前策略拦截、WriteApproval 一次性恢复。</p>
+          <ul>{Object.entries(data.policy.roles).map(([role, permissions]) => <li key={role}><strong>{role}</strong><span>{permissions.length} permissions</span></li>)}</ul>
+        </article>
+        <article className="governance-card">
+          <div><span>生产运行时</span><b>{data.schedules.length + data.coordinator.length}</b></div>
+          <p>Cron 硬超时、Coordinator 隔离 Worker、Credential Pool 与沙箱快照。</p>
+          <ul>
+            <li><strong>Schedules</strong><span>{data.schedules.length}</span></li>
+            <li><strong>Coordinator runs</strong><span>{data.coordinator.length}</span></li>
+            <li><strong>Credentials</strong><span>{data.credentials.length}</span></li>
+            <li><strong>Snapshots</strong><span>{data.snapshots.reduce((sum, item) => sum + Number(item.count ?? 0), 0)}</span></li>
+          </ul>
+        </article>
+        <article className="governance-card governance-actions">
+          <div><span>闭环操作</span><b>CONTROL</b></div>
+          <p>手动触发治理动作；所有写入仍经过 RBAC、PolicyEngine 与审批。</p>
+          <button disabled={Boolean(busy)} onClick={onRunRegressions}>{busy === "regressions" ? "执行中…" : "运行回归门禁"}</button>
+          <button disabled={Boolean(busy)} onClick={onAnalyzeSkills}>{busy === "curator" ? "分析中…" : "分析 Skill Curator"}</button>
+          <button disabled={Boolean(busy)} onClick={onRunSchedules}>{busy === "schedules" ? "调度中…" : "执行到期 Cron"}</button>
+        </article>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID().slice(0, 12));
   const [input, setInput] = useState("检查当前仓库并给出可验证的结果");
@@ -125,6 +189,8 @@ export default function App() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [audit, setAudit] = useState<JsonObject[]>([]);
   const [insight, setInsight] = useState<Insight>(emptyInsight);
+  const [governance, setGovernance] = useState<GovernanceOverview>(emptyGovernance);
+  const [governanceBusy, setGovernanceBusy] = useState("");
   const [result, setResult] = useState<RunResult | null>(null);
   const [responseView, setResponseView] = useState<"markdown" | "source">("markdown");
   const [running, setRunning] = useState(false);
@@ -139,6 +205,7 @@ export default function App() {
       api.approvals(),
       api.insights(),
       api.audit(),
+      api.governance(),
     ]);
     if (settled[0].status === "fulfilled") setTrajectory(settled[0].value);
     if (settled[1].status === "fulfilled") setDecisions(settled[1].value);
@@ -147,6 +214,7 @@ export default function App() {
     if (settled[4].status === "fulfilled") setApprovals(settled[4].value);
     if (settled[5].status === "fulfilled") setInsight(settled[5].value);
     if (settled[6].status === "fulfilled") setAudit(settled[6].value);
+    if (settled[7].status === "fulfilled") setGovernance(settled[7].value);
   }, [sessionId]);
 
   useEffect(() => {
@@ -192,7 +260,20 @@ export default function App() {
 
   async function decide(id: string, status: "approved" | "rejected") {
     await api.decide(id, status);
-    setApprovals(await api.approvals());
+    await refresh();
+  }
+
+  async function runGovernanceAction(name: string, action: () => Promise<unknown>) {
+    setGovernanceBusy(name);
+    setError("");
+    try {
+      await action();
+      setGovernance(await api.governance());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "治理操作失败");
+    } finally {
+      setGovernanceBusy("");
+    }
   }
 
   return (
@@ -216,13 +297,13 @@ export default function App() {
       <section className="workspace-shell">
         <header className="topbar">
           <div className="breadcrumbs"><span>Agent Conch</span><i>/</i><strong>运行工作台</strong></div>
-          <div className="topbar-actions"><span className="edition">P3 · Auditable</span><span className="session-chip">Session {sessionId.slice(0, 8)}</span></div>
+          <div className="topbar-actions"><span className="edition">P4 · Governable</span><span className="session-chip">Session {sessionId.slice(0, 8)}</span></div>
         </header>
 
         <div className="workbench-grid">
           <section className="task-composer">
             <div className="composer-heading"><div><p>NEW RUN</p><h1>创建任务</h1></div><span className={`run-state state-${running ? "running" : result?.status ?? "idle"}`}>{running ? "RUNNING" : result?.status ?? "IDLE"}</span></div>
-            <div className="runtime-card"><div className="runtime-logo">✦</div><div><small>RUNTIME</small><strong>Builtin Agent</strong><span>Auditable execution</span></div><b>›</b></div>
+            <div className="runtime-card"><div className="runtime-logo">✦</div><div><small>RUNTIME</small><strong>Builtin Agent</strong><span>Governed execution</span></div><b>›</b></div>
             <label>Session ID<input value={sessionId} onChange={(e) => setSessionId(e.target.value)} /></label>
             <label>任务描述<textarea rows={10} value={input} onChange={(e) => setInput(e.target.value)} /></label>
             <div className="run-options"><div><small>Context</small><strong>Auto compact</strong></div><div><small>Verification</small><strong>Automatic</strong></div></div>
@@ -241,7 +322,7 @@ export default function App() {
 
             <section className="result-panel panel">
               <div className="result-toolbar"><div><p>RUN OUTPUT</p><h2>{tabLabels[tab]}</h2></div><nav className="result-tabs">
-                {(["response", "decisions", "timeline", "trajectory", "traces", "verification"] as Tab[]).map((item) => (
+                {(["response", "decisions", "timeline", "trajectory", "traces", "verification", "governance"] as Tab[]).map((item) => (
                   <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{tabLabels[item]}</button>
                 ))}
               </nav></div>
@@ -250,6 +331,14 @@ export default function App() {
                   <ResponsePanel text={result?.final_response ?? ""} view={responseView} onViewChange={setResponseView} />
                 ) : tab === "decisions" ? (
                   <DecisionRows rows={decisions} />
+                ) : tab === "governance" ? (
+                  <GovernancePanel
+                    data={governance}
+                    busy={governanceBusy}
+                    onRunRegressions={() => void runGovernanceAction("regressions", api.runRegressions)}
+                    onAnalyzeSkills={() => void runGovernanceAction("curator", api.analyzeSkills)}
+                    onRunSchedules={() => void runGovernanceAction("schedules", api.runSchedules)}
+                  />
                 ) : (
                   <JsonRows rows={activeRows} />
                 )}

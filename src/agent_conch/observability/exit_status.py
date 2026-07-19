@@ -10,6 +10,7 @@ class ExitStatus(str, Enum):
     MAX_TURNS = "max_turns"
     TIMEOUT = "timeout"
     QUOTA_EXCEEDED = "quota_exceeded"
+    BUDGET_EXCEEDED = "budget_exceeded"
     VERIFICATION_FAILED = "verification_failed"
     SECURITY_BLOCKED = "security_blocked"
     ERROR = "error"
@@ -26,6 +27,8 @@ def classify_exit_status(status: str, error: str = "") -> ExitStatus:
         return ExitStatus.TIMEOUT
     if "quota" in normalized:
         return ExitStatus.QUOTA_EXCEEDED
+    if "budget" in normalized:
+        return ExitStatus.BUDGET_EXCEEDED
     if "verification" in normalized:
         return ExitStatus.VERIFICATION_FAILED
     if "security" in normalized or "policy" in normalized:

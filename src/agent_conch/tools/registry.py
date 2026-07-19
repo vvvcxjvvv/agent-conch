@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
+from agent_conch.security.permissions import ACTION_LEVELS, ACTION_PERMISSIONS
+from agent_conch.security.policy_engine import PolicyEffect, PolicyEngine, PolicyRequest
 from agent_conch.tools.base import BaseTool, ToolCall, ToolExecutionRecord, ToolResult
 from agent_conch.tools.tool_policy import PolicyContext, PolicyDecision, ToolAction, ToolPolicy
 
@@ -26,6 +28,23 @@ class ToolHealthState:
     consecutive_failures: int = 0
     first_failure_time: float = 0.0
     suppressed_until: float = 0.0  # 抑制到此时间
+
+
+class ApprovalGateway(Protocol):
+    def authorize_or_request(
+        self,
+        session_id: str,
+        operation: str,
+        reason: str,
+        payload: dict[str, Any],
+        principal: str,
+        role: str,
+        action_level: int,
+    ) -> tuple[bool, Any]: ...
+
+
+class BudgetGateway(Protocol):
+    def consume_tool(self, session_id: str, resource_units: int = 1) -> Any: ...
 
 
 class ToolRegistry:
@@ -44,12 +63,33 @@ class ToolRegistry:
         policy: ToolPolicy | None = None,
         check_ttl: int = 30,
         transient_suppress: int = 60,
+        governance: PolicyEngine | None = None,
+        approvals: ApprovalGateway | None = None,
+        budgets: BudgetGateway | None = None,
+        default_role: str = "admin",
     ):
         self._tools: dict[str, BaseTool] = {}
         self._health: dict[str, ToolHealthState] = {}
         self.policy = policy or ToolPolicy()
         self.check_ttl = check_ttl
         self.transient_suppress = transient_suppress
+        self.governance = governance
+        self.approvals = approvals
+        self.budgets = budgets
+        self.default_role = default_role
+        self._session_identities: dict[str, tuple[str, str, str]] = {}
+
+    def set_session_identity(
+        self,
+        session_id: str,
+        principal: str,
+        role: str,
+        sender: str = "main",
+    ) -> None:
+        self._session_identities[session_id] = (principal, role, sender)
+
+    def clear_session_identity(self, session_id: str) -> None:
+        self._session_identities.pop(session_id, None)
 
     def register(self, tool: BaseTool) -> None:
         """注册工具."""
@@ -157,6 +197,9 @@ class ToolRegistry:
         sender: str = "main",
         sandbox_mode: str = "non-main",
         is_main_session: bool = True,
+        session_id: str = "",
+        principal: str = "local",
+        role: str | None = None,
     ) -> ToolExecutionRecord:
         """执行工具调用.
 
@@ -198,6 +241,12 @@ class ToolRegistry:
                 status="error",
             )
 
+        identity = self._session_identities.get(session_id)
+        if identity is not None:
+            principal, configured_role, sender = identity
+            role = role or configured_role
+        selected_role = role or self.default_role
+
         # 策略检查
         action = self._infer_action(tool)
         ctx = PolicyContext(
@@ -207,6 +256,7 @@ class ToolRegistry:
             sandbox_mode=sandbox_mode,
             is_main_session=is_main_session,
             arguments=validated,
+            session_id=session_id,
         )
         decision, reason = self.policy.evaluate(ctx)
 
@@ -221,9 +271,81 @@ class ToolRegistry:
                 status="blocked",
             )
 
-        if decision == PolicyDecision.REQUIRE_APPROVAL:
-            # P1: 暂时放行, P4 接入 WriteApproval 审批流程
-            pass
+        requires_approval = decision == PolicyDecision.REQUIRE_APPROVAL
+        if self.governance is not None:
+            governance = self.governance.evaluate(
+                PolicyRequest(
+                    principal=principal,
+                    role=selected_role,
+                    permission=ACTION_PERMISSIONS[action.value],
+                    action_level=ACTION_LEVELS[action.value],
+                    tool_name=call.name,
+                    action=action.value,
+                    sender=sender,
+                    session_id=session_id,
+                    arguments=validated,
+                )
+            )
+            reason = governance.reason
+            if governance.effect == PolicyEffect.DENY:
+                result = ToolResult.error(f"Tool blocked by governance policy: {reason}")
+                return ToolExecutionRecord(
+                    tool_name=call.name,
+                    tool_call_id=call.id,
+                    arguments=validated,
+                    result=result,
+                    duration_ms=int((_time.time() - start) * 1000),
+                    status="blocked",
+                )
+            requires_approval = requires_approval or governance.effect == PolicyEffect.REQUIRE_APPROVAL
+
+        if requires_approval:
+            if self.approvals is None:
+                result = ToolResult.error(f"Tool requires approval but no approval store is configured: {reason}")
+                return ToolExecutionRecord(
+                    tool_name=call.name,
+                    tool_call_id=call.id,
+                    arguments=validated,
+                    result=result,
+                    duration_ms=int((_time.time() - start) * 1000),
+                    status="blocked",
+                )
+            authorized, approval = self.approvals.authorize_or_request(
+                session_id,
+                call.name,
+                reason,
+                validated,
+                principal,
+                selected_role,
+                int(ACTION_LEVELS[action.value]),
+            )
+            if not authorized:
+                result = ToolResult.error(
+                    f"Approval required: {approval.approval_id}. Approve and retry the exact request."
+                )
+                return ToolExecutionRecord(
+                    tool_name=call.name,
+                    tool_call_id=call.id,
+                    arguments=validated,
+                    result=result,
+                    duration_ms=int((_time.time() - start) * 1000),
+                    status="approval_required",
+                )
+
+        if self.budgets is not None and session_id:
+            budget = self.budgets.consume_tool(
+                session_id, resource_units=int(ACTION_LEVELS[action.value])
+            )
+            if not bool(budget.allowed):
+                result = ToolResult.error(f"Tool blocked by budget: {budget.reason}")
+                return ToolExecutionRecord(
+                    tool_name=call.name,
+                    tool_call_id=call.id,
+                    arguments=validated,
+                    result=result,
+                    duration_ms=int((_time.time() - start) * 1000),
+                    status="blocked",
+                )
 
         # 执行
         try:

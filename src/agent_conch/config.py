@@ -111,6 +111,51 @@ class ApiConfig:
 
 
 @dataclass
+class GovernanceConfig:
+    """P4 RBAC、PolicyEngine 与 WriteApproval 配置。"""
+
+    enabled: bool = True
+    default_role: str = "admin"
+    approval_level: int = 4
+    policy_rules: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class BudgetConfig:
+    """单任务综合预算。"""
+
+    max_tokens: int = 200_000
+    max_seconds: int = 600
+    max_tool_calls: int = 500
+    max_resource_units: int = 1_000
+
+
+@dataclass
+class CredentialsConfig:
+    """Credential Pool 仅引用外部 secret，不存储明文。"""
+
+    failure_cooldown: int = 60
+    entries: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RegressionConfig:
+    auto_capture: bool = True
+    minimum_pass_rate: float = 1.0
+
+
+@dataclass
+class SchedulerConfig:
+    hard_timeout: int = 180
+
+
+@dataclass
+class CoordinatorConfig:
+    max_workers: int = 4
+    worker_role: str = "worker"
+
+
+@dataclass
 class PromptConfig:
     """Prompt 配置."""
 
@@ -139,6 +184,12 @@ class ConchConfig:
     quota: QuotaConfig = field(default_factory=QuotaConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
+    governance: GovernanceConfig = field(default_factory=GovernanceConfig)
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
+    credentials: CredentialsConfig = field(default_factory=CredentialsConfig)
+    regression: RegressionConfig = field(default_factory=RegressionConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    coordinator: CoordinatorConfig = field(default_factory=CoordinatorConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
@@ -155,6 +206,12 @@ class ConchConfig:
             quota=QuotaConfig(**data.get("quota", {})),
             verification=VerificationConfig(**data.get("verification", {})),
             api=ApiConfig(**data.get("api", {})),
+            governance=GovernanceConfig(**data.get("governance", {})),
+            budget=BudgetConfig(**data.get("budget", {})),
+            credentials=CredentialsConfig(**data.get("credentials", {})),
+            regression=RegressionConfig(**data.get("regression", {})),
+            scheduler=SchedulerConfig(**data.get("scheduler", {})),
+            coordinator=CoordinatorConfig(**data.get("coordinator", {})),
             prompt=PromptConfig(**data.get("prompt", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )

@@ -19,14 +19,20 @@ import uuid
 from dataclasses import asdict
 from typing import Any
 
+from agent_conch.api.approvals import Approval, WriteApprovalStore
 from agent_conch.config import ConchConfig
+from agent_conch.context.skills.curator import SkillCurator
 from agent_conch.engine.agent_loop import AgentLoop
-from agent_conch.engine.layers.base import Event, LayerManager
+from agent_conch.engine.layers.base import Event, LayerManager, NodeContext
 from agent_conch.engine.layers.execution_limits import ExecutionLimitsLayer
 from agent_conch.engine.layers.llm_quota import LLMQuotaLayer
 from agent_conch.engine.layers.suspend import PauseStatePersistLayer, SuspendLayer
 from agent_conch.engine.runtime.builtin import BuiltinConchRuntime
 from agent_conch.engine.runtime.types import AgentResult, RuntimeConfig
+from agent_conch.governance.budget import BudgetLimits, BudgetManager, CostBudgetLayer
+from agent_conch.governance.scheduler import CronScheduler
+from agent_conch.multiagent.coordinator import Coordinator, DecisionTable
+from agent_conch.multiagent.subagent import SubagentRecord
 from agent_conch.observability.decision_trace import DecisionTraceStore
 from agent_conch.observability.events import EventBus
 from agent_conch.observability.exit_status import classify_exit_status
@@ -38,9 +44,14 @@ from agent_conch.prompts.system_prompt import build_system_prompt
 from agent_conch.sandbox.local import LocalBackend
 from agent_conch.sandbox.path_validator import PathValidator
 from agent_conch.sandbox.registry import SandboxRegistry
+from agent_conch.sandbox.snapshots import SnapshotManager
 from agent_conch.security.audit import SecurityAudit
+from agent_conch.security.credentials import CredentialPool, CredentialRef
+from agent_conch.security.permissions import RBAC, Permission
+from agent_conch.security.policy_engine import PolicyEngine
 from agent_conch.state.session_db import SessionDB
-from agent_conch.state.trajectory import TrajectoryStore
+from agent_conch.state.trajectory import TrajectoryStep, TrajectoryStore
+from agent_conch.tools.base import ToolCall, ToolExecutionRecord
 from agent_conch.tools.core.ask_user import AskUserTool
 from agent_conch.tools.core.bash import BashTool
 from agent_conch.tools.core.edit_file import EditFileTool
@@ -59,6 +70,7 @@ from agent_conch.tools.registry import ToolRegistry
 from agent_conch.tools.tool_policy import ToolPolicy
 from agent_conch.tools.tool_search import ToolSearch
 from agent_conch.verification.layer import VerificationLayer
+from agent_conch.verification.regression import RegressionRunner, RegressionStore
 from agent_conch.verification.report import VerificationStore
 from agent_conch.verification.reviewer import Reviewer
 from agent_conch.verification.self_review import SelfReview
@@ -86,14 +98,52 @@ class ConchEngine:
 
         self.checkpoint_manager = CheckpointManager(self.session_db)
 
-        # === O/V/G 层: P3 可观测、验证与治理 ===
+        # === O/V/G/S 层: 可观测、验证与 P4 治理 ===
         self.trace_store = TraceStore(self.session_db)
         self.decision_trace_store = DecisionTraceStore(self.session_db)
         self.otel_tracer = OTelTracer(self.trace_store)
         self.verification_store = VerificationStore(self.session_db)
+        self.regression_store = RegressionStore(self.session_db)
         self.insights = InsightsEngine(self.session_db)
-        self.event_bus = EventBus()
+        self.event_bus = EventBus(self.session_db)
         self.security_audit = SecurityAudit()
+        self.approval_store = WriteApprovalStore(self.session_db)
+        self.rbac = RBAC()
+        self.policy_engine = PolicyEngine.from_config(
+            self.config.governance.policy_rules,
+            self.config.governance.approval_level,
+        )
+        budget_limits = BudgetLimits(
+            max_tokens=self.config.budget.max_tokens,
+            max_seconds=self.config.budget.max_seconds,
+            max_tool_calls=self.config.budget.max_tool_calls,
+            max_resource_units=self.config.budget.max_resource_units,
+        )
+        self.budget_manager = BudgetManager(self.session_db, budget_limits)
+        credential_refs = [
+            CredentialRef(
+                alias=str(item["alias"]),
+                provider=str(item["provider"]),
+                reference=str(item["reference"]),
+                backend=str(item.get("backend", "env")),
+                priority=int(item.get("priority", 100)),
+            )
+            for item in self.config.credentials.entries
+        ]
+        if not any(item.provider == self.config.model.provider for item in credential_refs):
+            credential_refs.append(
+                CredentialRef(
+                    alias="model-default",
+                    provider=self.config.model.provider,
+                    reference=self.config.model.api_key_env,
+                    backend="env",
+                    priority=100,
+                )
+            )
+        self.credential_pool = CredentialPool(
+            credential_refs,
+            failure_cooldown=self.config.credentials.failure_cooldown,
+        )
 
         # === E 层: 沙箱 ===
         path_validator = PathValidator(
@@ -104,7 +154,12 @@ class ConchEngine:
         self.local_backend = LocalBackend(validator=path_validator, default_cwd=self.cwd)
         self.sandbox_registry = SandboxRegistry(mode=self.config.sandbox.mode)
         self.sandbox_registry.register("local", self.local_backend)
+        if self.config.sandbox.default_backend == "docker":
+            from agent_conch.sandbox.docker import DockerBackend
+
+            self.sandbox_registry.register("docker", DockerBackend())
         self.sandbox_registry.set_default(self.config.sandbox.default_backend)
+        self.snapshot_manager = SnapshotManager(self.session_db, self.sandbox_registry)
 
         # === T 层: 工具系统 ===
         self.tool_policy = ToolPolicy()
@@ -112,6 +167,10 @@ class ConchEngine:
             policy=self.tool_policy,
             check_ttl=self.config.tools.check_fn_ttl,
             transient_suppress=self.config.tools.transient_suppress,
+            governance=self.policy_engine if self.config.governance.enabled else None,
+            approvals=self.approval_store,
+            budgets=self.budget_manager,
+            default_role=self.config.governance.default_role,
         )
 
         self.tool_search = ToolSearch(
@@ -168,6 +227,10 @@ class ConchEngine:
         self.system_prompt = self.skill_injector.inject(
             self.system_prompt, query="agent coding tools"
         )
+        self.skill_curator = SkillCurator(
+            self.session_db,
+            self.config.state.storage_path / "skills-archive",
+        )
 
         # 分层记忆
         self.memory_manager = MemoryManager(
@@ -193,7 +256,14 @@ class ConchEngine:
 
         self.subagent_manager = SubagentManager(self.session_db)
 
-        # === L/O/V 层: P3 Layer 与评审闭环 ===
+        # === L/O/V/G 层: Layer、回归与评审闭环 ===
+        self.regression_runner = RegressionRunner(
+            self.regression_store,
+            self._run_verification,
+            self.cwd,
+            self.config.verification.timeout,
+            self.config.regression.minimum_pass_rate,
+        )
         self.layer_manager = LayerManager()
         self._setup_layers()
         self.reviewer = Reviewer(self._call_auxiliary_model)
@@ -222,9 +292,23 @@ class ConchEngine:
             prompt_caching=self.prompt_caching,
             event_sink=self.event_bus.publish,
             decision_trace_store=self.decision_trace_store,
+            credential_pool=self.credential_pool,
+            credential_provider=self.config.model.provider,
         )
 
         self.runtime = BuiltinConchRuntime(runtime_config, self.agent_loop)
+        self.scheduler = CronScheduler(
+            self.session_db,
+            self._run_scheduled_task,
+            self.config.scheduler.hard_timeout,
+        )
+        self.coordinator = Coordinator(
+            self.session_db,
+            self.subagent_manager,
+            self._run_coordinator_worker,
+            DecisionTable(default_role=self.config.coordinator.worker_role),
+            self.config.coordinator.max_workers,
+        )
 
     def _register_core_tools(self) -> None:
         """注册 12 核心工具."""
@@ -273,12 +357,26 @@ class ConchEngine:
                         self.config.verification.commands,
                         self.cwd,
                         self.config.verification.timeout,
+                        self.regression_store,
+                        self.config.regression.auto_capture,
                     )
                 )
             elif layer_name == "suspend":
                 self.layer_manager.add(SuspendLayer())
             elif layer_name == "pause_state_persist":
                 self.layer_manager.add(PauseStatePersistLayer(self.checkpoint_manager))
+            elif layer_name == "cost_budget":
+                self.layer_manager.add(
+                    CostBudgetLayer(
+                        self.budget_manager,
+                        BudgetLimits(
+                            self.config.budget.max_tokens,
+                            self.config.budget.max_seconds,
+                            self.config.budget.max_tool_calls,
+                            self.config.budget.max_resource_units,
+                        ),
+                    )
+                )
 
     async def _run_verification(self, command: str, cwd: str | None, timeout: int) -> Any:
         return await self.local_backend.execute(command, cwd=cwd, timeout=timeout)
@@ -298,16 +396,35 @@ class ConchEngine:
         """执行不带工具的摘要/记忆辅助模型调用。"""
         import litellm
 
-        response = await litellm.acompletion(
-            model=self.config.model.name,
-            messages=messages,
-            temperature=0,
-            max_tokens=min(1024, self.config.model.max_tokens),
-            timeout=self.config.model.timeout,
-        )
+        kwargs: dict[str, Any] = {
+            "model": self.config.model.name,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": min(1024, self.config.model.max_tokens),
+            "timeout": self.config.model.timeout,
+        }
+        lease = self.credential_pool.acquire(self.config.model.provider)
+        if lease is not None:
+            kwargs["api_key"] = lease.secret
+        try:
+            response = await litellm.acompletion(**kwargs)
+        except Exception:
+            if lease is not None:
+                self.credential_pool.record_failure(lease.alias)
+            raise
+        if lease is not None:
+            self.credential_pool.record_success(lease.alias)
         return response.choices[0].message.content or ""
 
-    async def run(self, user_input: str, session_id: str | None = None) -> AgentResult:
+    async def run(
+        self,
+        user_input: str,
+        session_id: str | None = None,
+        *,
+        principal: str = "local",
+        role: str | None = None,
+        sender: str = "main",
+    ) -> AgentResult:
         """执行 Agent run.
 
         Args:
@@ -319,24 +436,41 @@ class ConchEngine:
         """
         if session_id is None:
             session_id = str(uuid.uuid4())[:12]
-
-        result = await self.runtime.run(session_id, user_input)
-        if self.config.verification.review_on_submit and result.status == "completed":
-            report = self.verification_store.latest(session_id)
-            review = await self.self_review.run(
-                user_input,
-                result.final_response,
-                report.passed if report is not None else True,
+        selected_role = role or self.config.governance.default_role
+        authorization = self.rbac.authorize(selected_role, Permission.RUN_CREATE)
+        if not authorization.allowed:
+            if self.session_db.get_session(session_id) is None:
+                self.session_db.create_session(session_id, cwd=self.cwd, model_name=self.config.model.name)
+            self.session_db.update_session_status(session_id, "blocked")
+            return AgentResult(
+                session_id=session_id,
+                status="blocked",
+                error=authorization.reason,
+                trajectory_summary={"exit_status": "blocked"},
             )
-            result.trajectory_summary["self_review"] = asdict(review)
-            if not review.passed:
-                result.status = "error"
-                result.error = "Self review failed: " + "; ".join(review.issues)
-        result.trajectory_summary["exit_status"] = classify_exit_status(
-            result.status, result.error or ""
-        ).value
-        self.session_db.update_session_status(session_id, result.status)
-        return result
+
+        self.tool_registry.set_session_identity(session_id, principal, selected_role, sender)
+        try:
+            result = await self.runtime.run(session_id, user_input)
+            if self.config.verification.review_on_submit and result.status == "completed":
+                report = self.verification_store.latest(session_id)
+                review = await self.self_review.run(
+                    user_input,
+                    result.final_response,
+                    report.passed if report is not None else True,
+                )
+                result.trajectory_summary["self_review"] = asdict(review)
+                if not review.passed:
+                    result.status = "error"
+                    result.error = "Self review failed: " + "; ".join(review.issues)
+            result.trajectory_summary["exit_status"] = classify_exit_status(
+                result.status, result.error or ""
+            ).value
+            result.trajectory_summary["budget"] = self.budget_manager.summary(session_id)
+            self.session_db.update_session_status(session_id, result.status)
+            return result
+        finally:
+            self.tool_registry.clear_session_identity(session_id)
 
     async def replay(self, session_id_or_path: str) -> str:
         """回放轨迹."""
@@ -351,7 +485,104 @@ class ConchEngine:
 
     async def resume(self, session_id: str) -> None:
         await self.layer_manager.on_event(Event(type="resume", data={"session_id": session_id}))
+        self.session_db.update_session_status(session_id, "active")
         await self.event_bus.publish(session_id, {"type": "resumed"})
+
+    async def resume_approval(self, approval: Approval) -> ToolExecutionRecord:
+        """批准后执行持久化的原始工具请求；批准记录只能消费一次。"""
+        if approval.status != "approved":
+            raise ValueError("Only approved requests can be resumed")
+        self.tool_registry.set_session_identity(
+            approval.session_id,
+            approval.principal,
+            approval.role,
+            "main",
+        )
+        try:
+            record = await self.tool_registry.execute_tool_call(
+                ToolCall(
+                    id=f"approval-{approval.approval_id}",
+                    name=approval.operation,
+                    arguments=approval.payload,
+                ),
+                sandbox_mode=self.config.sandbox.mode,
+                session_id=approval.session_id,
+            )
+            node_ctx = NodeContext(
+                session_id=approval.session_id,
+                turn_index=0,
+                tool_results=[record],
+                metadata={"approval_id": approval.approval_id},
+            )
+            await self.layer_manager.on_node_run_end(node_ctx, [record])
+            self.trajectory_store.save_step(
+                TrajectoryStep(
+                    session_id=approval.session_id,
+                    turn_index=0,
+                    step_type="tool_call",
+                    tool_name=record.tool_name,
+                    tool_input=record.arguments,
+                    tool_output=record.result.content[:2000],
+                    tool_status=record.status,
+                    duration_ms=record.duration_ms,
+                    metadata={"approval_id": approval.approval_id},
+                )
+            )
+            await self.event_bus.publish(
+                approval.session_id,
+                {
+                    "type": "approval_resumed",
+                    "approval_id": approval.approval_id,
+                    "tool_name": record.tool_name,
+                    "status": record.status,
+                },
+            )
+            if record.status == "success":
+                await self.resume(approval.session_id)
+            return record
+        finally:
+            self.tool_registry.clear_session_identity(approval.session_id)
+
+    async def _run_scheduled_task(self, task: str, session_id: str) -> AgentResult:
+        return await self.run(
+            task,
+            session_id,
+            principal="scheduler",
+            role="operator",
+            sender="plugin",
+        )
+
+    async def _run_coordinator_worker(
+        self,
+        record: SubagentRecord,
+        role: str,
+        metadata: dict[str, Any],
+    ) -> str:
+        result = await self.run(
+            record.task,
+            record.session_id,
+            principal=f"subagent:{record.subagent_id}",
+            role=role,
+            sender="subagent",
+        )
+        if result.status != "completed":
+            raise RuntimeError(result.error or f"Worker ended with {result.status}")
+        return result.final_response
+
+    def governance_overview(self) -> dict[str, Any]:
+        return {
+            "policy": self.policy_engine.describe(),
+            "approvals": [asdict(item) for item in self.approval_store.list_all(20)],
+            "budgets": self.budget_manager.list_recent(20),
+            "credentials": self.credential_pool.metadata(),
+            "regressions": {
+                "cases": len(self.regression_store.list_cases()),
+                "latest_results": self.regression_store.latest_results(),
+            },
+            "schedules": [asdict(item) for item in self.scheduler.list_schedules()],
+            "coordinator": [asdict(item) for item in self.coordinator.list_runs(20)],
+            "snapshots": self.snapshot_manager.overview(),
+        }
 
     def run_security_audit(self) -> list[Any]:
         return self.security_audit.scan(asdict(self.config))
