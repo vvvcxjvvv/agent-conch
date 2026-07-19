@@ -1,11 +1,25 @@
 # Agent-Conch
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)]()
+<p align="center">
+  <img src="assets/agent-conch-logo.png" alt="Agent-Conch Logo" width="200" />
+</p>
+
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/code%20style-ruff-000000.svg" alt="Ruff" /></a>
+  <img src="https://img.shields.io/badge/version-0.1.0-orange.svg" alt="Version" />
+</p>
 
 > Agent = Model + Harness。Agent-Conch 是一个把 LLM 模型能力组织成可运行、可审计、可恢复 Agent 系统的 Python Harness：工具编排、沙箱执行、上下文压缩、确定性验证、可观测性与治理审批一体化。
+
+## 工作台预览
+
+<p align="center">
+  <img src="assets/agent-conch-workbench.png" alt="Agent-Conch 资源控制台" />
+</p>
+
+*pictured：React 工作台 · 资源控制台 —— 创建任务、查看 Session 全链路（会话消息 / 工具调用 / 扩展项 / 安全审计）*
 
 ## 特性
 
@@ -233,10 +247,10 @@ ruff check src tests
 mypy src
 
 # 前端
-cd apps/web && npm run test && npm run build && npm run test:e2e
+cd apps/web && npm install && npm run test && npm run build && npm run test:e2e
 
 # 桌面端
-cd apps/desktop && npm run check && npm run pack
+cd apps/desktop && npm install && npm run check && npm run pack
 ```
 
 ## 技术栈
